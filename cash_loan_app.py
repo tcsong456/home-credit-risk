@@ -45,7 +45,7 @@ class BaseFeatures(BaseEstimator, TransformerMixin):
         X['ext13_prod'] = X['EXT_SOURCE_1'] * X['EXT_SOURCE_3']
         X['ext_mean_bin'] = pd.qcut(X['ext_mean'], 20, labels=False)
         X['ext_mean_income'] = X['ext_mean'] / X['AMT_INCOME_TOTAL']
-        X['ext_min_credit'] = X['ext_min'] / X['AMT_CREDIT']
+        X['ext_mean_credit'] = X['ext_mean'] / X['AMT_CREDIT']
         
         X['down_payment_ratio'] = 1 - X['AMT_CREDIT'] / X['AMT_GOODS_PRICE']
         X['goods_income'] = X['AMT_GOODS_PRICE'] / X['AMT_INCOME_TOTAL']
@@ -57,18 +57,101 @@ class BaseFeatures(BaseEstimator, TransformerMixin):
         new_features += ext_feat_cols
         return X[new_features]
 
+class GroupPercentileFeatures(BaseEstimator, TransformerMixin):
+    def __init__(self,
+                 group_col,
+                 ):
+        self.group_col = group_col
+    
+    def fit(self, X, *args):
+        X = X.copy()
+        X['credit_income'] = X['AMT_CREDIT'] / X['AMT_INCOME_TOTAL']
+        X['annuity_income'] = X['AMT_ANNUITY'] / X['AMT_INCOME_TOTAL']
+        X['annuity_credit'] = X['AMT_ANNUITY'] / X['AMT_CREDIT']
+        
+        ext_cols = ['EXT_SOURCE_1', 'EXT_SOURCE_2', 'EXT_SOURCE_3']
+        X['ext_mean'] = X[ext_cols].mean(axis=1)
+        X['ext_mean_income'] = X['ext_mean'] / X['AMT_INCOME_TOTAL']
+        X['ext_min_credit'] = X['ext_mean'] / X['AMT_CREDIT']
+        
+        self.group_sorted, self.global_sorted = {}, {}
+        self.num_cols = ['AMT_CREDIT', 'AMT_INCOME_TOTAL', 'AMT_GOODS_PRICE', 'credit_income', 'annuity_income', 'annuity_credit',
+                         'ext_mean_income', 'ext_min_credit']
+        for col in self.num_cols:
+            v = X[col]
+            mask = ~pd.isnull(v)
+            self.global_sorted[col] = np.sort(v.loc[mask])
+            
+            feat_map = {}
+            for grp, idx in X.loc[mask].groupby(self.group_col).groups.items():
+                group_v = v.loc[idx]
+                feat_map[grp] = np.sort(group_v)
+            self.group_sorted[col] = feat_map
+        return self
+    
+    def transform(self, X):
+        X = X.copy()
+        X['credit_income'] = X['AMT_CREDIT'] / X['AMT_INCOME_TOTAL']
+        X['annuity_income'] = X['AMT_ANNUITY'] / X['AMT_INCOME_TOTAL']
+        X['annuity_credit'] = X['AMT_ANNUITY'] / X['AMT_CREDIT']
+        
+        ext_cols = ['EXT_SOURCE_1', 'EXT_SOURCE_2', 'EXT_SOURCE_3']
+        X['ext_mean'] = X[ext_cols].mean(axis=1)
+        X['ext_mean_income'] = X['ext_mean'] / X['AMT_INCOME_TOTAL']
+        X['ext_min_credit'] = X['ext_mean'] / X['AMT_CREDIT']
+        
+        output = []
+        for col in self.num_cols:
+            v = X[col]
+            pct = np.full(v.shape[0], np.nan)
+            for grp, idx in X.groupby(self.group_col).groups.items():
+                val = v.loc[idx]
+                dist = self.group_sorted.get(col, {}).get(grp, None)
+                if dist is None or dist.size == 0:
+                    dist = self.global_sorted.get(col, np.array([]))
+                if dist.size == 0:
+                    continue
+                
+                mask = pd.isnull(val)
+                if np.all(mask):
+                    continue
+                
+                vv = val.loc[~mask]
+                rank = np.searchsorted(dist, vv, side="right")
+                p = rank / dist.shape[0]
+                pct[idx[~mask]] = p
+            output.append(pct)
+        output = np.stack(output, axis=1)
+        return output
+
 def cur_app_features():
-    return make_pipeline(make_union(BaseFeatures()))
+    pp = make_union(
+        BaseFeatures(),
+        GroupPercentileFeatures('NAME_INCOME_TYPE'),
+        GroupPercentileFeatures('NAME_EDUCATION_TYPE'),
+        GroupPercentileFeatures('ORGANIZATION_TYPE'),
+        GroupPercentileFeatures('OCCUPATION_TYPE')
+        )
+    return pp
 
 if __name__ == '__main__':
     # train = pd.read_csv('data/application_train.csv')
     # test = pd.read_csv('data/application_test.csv')
     # pos_cash = pd.read_csv('data/POS_CASH_balance.csv', encoding="latin1")
-    # cash_loan_train = train[train['NAME_CONTRACT_TYPE']=='Cash loans']
+    cash_loan_train = train[train['NAME_CONTRACT_TYPE']=='Cash loans'].reset_index(drop=True)
     
     # base_feats = base_features(cash_loan_train)
     # base_feats = BaseFeatures().fit_transform(cash_loan_train)
-    x = cur_app_features()
+    pipeline = cur_app_features()
+    x = pipeline.fit_transform(cash_loan_train)
 
 #%%
-x
+# v = cash_loan_train['AMT_INCOME_TOTAL']
+# for grp, idx in cash_loan_train.groupby('NAME_INCOME_TYPE').groups.items():
+#     print(np.sort(v.loc[idx]))
+x.shape
+
+    
+    
+    
+    
