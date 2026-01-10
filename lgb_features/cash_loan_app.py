@@ -5,6 +5,7 @@ import pandas as pd
 from sklearn.pipeline import make_union, make_pipeline
 from sklearn.base import BaseEstimator, TransformerMixin
 from utils.transformers import ColumnSelector, FrequencyEncoding
+from utils.target_encoding import target_encoding_train, target_encoding_inference
 
 class BaseFeatures(BaseEstimator, TransformerMixin):
     def fit(self, X, *args):
@@ -164,20 +165,21 @@ def cur_app_features():
     return pp
 
 if __name__ == '__main__':
-    # train = pd.read_csv('data/application_train.csv')
+    train = pd.read_csv('data/application_train.csv')
     # test = pd.read_csv('data/application_test.csv')
-    # pos_cash = pd.read_csv('data/POS_CASH_balance.csv', encoding="latin1")
-    # cash_loan_train = train[train['NAME_CONTRACT_TYPE']=='Cash loans'].reset_index(drop=True)
+    cash_loan_train = train[train['NAME_CONTRACT_TYPE']=='Cash loans'].reset_index(drop=True)
     
-    # base_feats = base_features(cash_loan_train)
-    # base_feats = BaseFeatures().fit_transform(cash_loan_train)
     pipeline = cur_app_features()
-    x = pipeline.fit_transform(cash_loan_train)
+    x_train = pipeline.fit_transform(cash_loan_train)
+    cash_loan_train['OCCUPATION_TYPE'] = cash_loan_train['OCCUPATION_TYPE'].fillna('unk')
+    te1_tr = target_encoding_train(cash_loan_train, columns=['CODE_GENDER', 'NAME_EDUCATION_TYPE'], alpha=50)
+    te2_tr = target_encoding_train(cash_loan_train, columns=['CODE_GENDER', 'NAME_FAMILY_STATUS'], alpha=50)
+    te3_tr = target_encoding_train(cash_loan_train, columns=['CODE_GENDER', 'OCCUPATION_TYPE'], alpha=50)
+    x_train = np.concatenate([x_train, te1_tr, te2_tr, te3_tr], axis=1)
 
 #%%
 # cash_loan_train['OCCUPATION_TYPE'].unique()
-x.shape
-    
+
     
     
     
