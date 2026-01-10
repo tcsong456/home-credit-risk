@@ -69,6 +69,9 @@ class GroupPercentileFeatures(BaseEstimator, TransformerMixin):
         X['credit_income'] = X['AMT_CREDIT'] / X['AMT_INCOME_TOTAL']
         X['annuity_income'] = X['AMT_ANNUITY'] / X['AMT_INCOME_TOTAL']
         X['annuity_credit'] = X['AMT_ANNUITY'] / X['AMT_CREDIT']
+        X['DAYS_EMPLOYED'] = X['DAYS_EMPLOYED'].replace(365243, np.nan)
+        X['employment_length'] = abs(X['DAYS_EMPLOYED'] / 365)
+        X['age'] = abs(X['DAYS_BIRTH'] / 365)
         
         ext_cols = ['EXT_SOURCE_1', 'EXT_SOURCE_2', 'EXT_SOURCE_3']
         X['ext_mean'] = X[ext_cols].mean(axis=1)
@@ -76,8 +79,8 @@ class GroupPercentileFeatures(BaseEstimator, TransformerMixin):
         X['ext_mean_credit'] = X['ext_mean'] / X['AMT_CREDIT']
         
         self.group_sorted, self.global_sorted = {}, {}
-        self.num_cols = ['AMT_CREDIT', 'AMT_INCOME_TOTAL', 'AMT_GOODS_PRICE', 'credit_income', 'annuity_income', 'annuity_credit',
-                         'ext_mean_income', 'ext_mean_credit']
+        self.num_cols = ['AMT_CREDIT', 'AMT_INCOME_TOTAL', 'credit_income', 'annuity_income', 'annuity_credit',
+                         'employment_length', 'age', 'ext_mean_income', 'ext_mean_credit']
         for col in self.num_cols:
             v = X[col]
             mask = ~pd.isnull(v)
@@ -95,6 +98,9 @@ class GroupPercentileFeatures(BaseEstimator, TransformerMixin):
         X['credit_income'] = X['AMT_CREDIT'] / X['AMT_INCOME_TOTAL']
         X['annuity_income'] = X['AMT_ANNUITY'] / X['AMT_INCOME_TOTAL']
         X['annuity_credit'] = X['AMT_ANNUITY'] / X['AMT_CREDIT']
+        X['DAYS_EMPLOYED'] = X['DAYS_EMPLOYED'].replace(365243, np.nan)
+        X['employment_length'] = abs(X['DAYS_EMPLOYED'] / 365)
+        X['age'] = abs(X['DAYS_BIRTH'] / 365)
         
         ext_cols = ['EXT_SOURCE_1', 'EXT_SOURCE_2', 'EXT_SOURCE_3']
         X['ext_mean'] = X[ext_cols].mean(axis=1)
@@ -128,7 +134,8 @@ class GroupPercentileFeatures(BaseEstimator, TransformerMixin):
 def cur_app_features():
     pp = make_union(
         BaseFeatures(),
-        GroupPercentileFeatures('NAME_INCOME_TYPE'),
+        GroupPercentileFeatures('OCCUPATION_TYPE'),
+        GroupPercentileFeatures('NAME_EDUCATION_TYPE'),
         make_pipeline(
                 ColumnSelector(['NAME_TYPE_SUITE']),
                 FrequencyEncoding(min_cnt=50)
@@ -168,7 +175,7 @@ if __name__ == '__main__':
     x = pipeline.fit_transform(cash_loan_train)
 
 #%%
-# cash_loan_train['ORGANIZATION_TYPE'].value_counts()
+# cash_loan_train['OCCUPATION_TYPE'].unique()
 x.shape
     
     
