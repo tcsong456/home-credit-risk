@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 from sklearn.pipeline import make_union, make_pipeline
 from sklearn.base import BaseEstimator, TransformerMixin
+from utils.transformers import ColumnSelector, FrequencyEncoding
 
 class BaseFeatures(BaseEstimator, TransformerMixin):
     def fit(self, X, *args):
@@ -128,26 +129,47 @@ def cur_app_features():
     pp = make_union(
         BaseFeatures(),
         GroupPercentileFeatures('NAME_INCOME_TYPE'),
+        make_pipeline(
+                ColumnSelector(['NAME_TYPE_SUITE']),
+                FrequencyEncoding(min_cnt=50)
+            ),
+        make_pipeline(
+                ColumnSelector(['NAME_INCOME_TYPE']),
+                FrequencyEncoding(min_cnt=20)
+            ),
+        make_pipeline(
+                ColumnSelector(['NAME_FAMILY_STATUS']),
+                FrequencyEncoding(min_cnt=100)
+            ),
+        make_pipeline(
+                ColumnSelector(['NAME_HOUSING_TYPE']),
+                FrequencyEncoding(min_cnt=100)
+            ),
+        make_pipeline(
+                ColumnSelector(['OCCUPATION_TYPE']),
+                FrequencyEncoding(min_cnt=100)
+            ),
+        make_pipeline(
+                ColumnSelector(['ORGANIZATION_TYPE']),
+                FrequencyEncoding(min_cnt=20)
+            )
         )
     return pp
 
 if __name__ == '__main__':
-    train = pd.read_csv('data/application_train.csv')
+    # train = pd.read_csv('data/application_train.csv')
     # test = pd.read_csv('data/application_test.csv')
     # pos_cash = pd.read_csv('data/POS_CASH_balance.csv', encoding="latin1")
     # cash_loan_train = train[train['NAME_CONTRACT_TYPE']=='Cash loans'].reset_index(drop=True)
     
     # base_feats = base_features(cash_loan_train)
     # base_feats = BaseFeatures().fit_transform(cash_loan_train)
-    # pipeline = cur_app_features()
-    # x = pipeline.fit_transform(cash_loan_train)
+    pipeline = cur_app_features()
+    x = pipeline.fit_transform(cash_loan_train)
 
 #%%
-# v = cash_loan_train['AMT_INCOME_TOTAL']
-# for grp, idx in cash_loan_train.groupby('NAME_INCOME_TYPE').groups.items():
-#     print(np.sort(v.loc[idx]))
-# z = cash_loan_train[cash_loan_train['NAME_INCOME_TYPE']=='Pensioner']
-train[train['NAME_EDUCATION_TYPE'] == 'Academic degree']
+# cash_loan_train['ORGANIZATION_TYPE'].value_counts()
+x.shape
     
     
     

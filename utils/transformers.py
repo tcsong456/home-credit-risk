@@ -66,6 +66,9 @@ class FrequencyEncoding(BaseEstimator, TransformerMixin):
         return self.freq_dict.get(x[self.column], 0)
     
     def transform(self, X):
-        return X.apply(self._get_freq, axis=1)
+        fe = X.apply(self._get_freq, axis=1)
+        if len(fe.shape) == 1:
+            return fe[:, None]
+        return fe
 
 #%%
