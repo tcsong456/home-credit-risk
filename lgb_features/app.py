@@ -2,7 +2,6 @@ import warnings
 warnings.filterwarnings('ignore')
 import numpy as np
 import pandas as pd
-from sklearn.model_selection import train_test_split
 from sklearn.pipeline import make_union, make_pipeline
 from sklearn.base import BaseEstimator, TransformerMixin
 from utils.transformers import ColumnSelector, FrequencyEncoding, OneHotEncoding
@@ -178,6 +177,10 @@ def cur_app_features():
         make_pipeline(
              ColumnSelector(columns=['FLAG_OWN_REALTY']),
              OneHotEncoding()
+            ),
+        make_pipeline(
+             ColumnSelector(columns=['NAME_CONTRACT_TYPE']),
+             OneHotEncoding()
             )
         )
     return pp
@@ -185,42 +188,39 @@ def cur_app_features():
 if __name__ == '__main__':
     train = pd.read_csv('data/application_train.csv')
     test = pd.read_csv('data/application_test.csv')
-    cash_loan = train[train['NAME_CONTRACT_TYPE']=='Cash loans'].reset_index(drop=True)
-    cash_loan_test = test[test['NAME_CONTRACT_TYPE']=='Cash loans'].reset_index(drop=True)
-    curr_train, curr_val = train_test_split(cash_loan['SK_ID_CURR'],
-                                             test_size=0.15, random_state=875, shuffle=True)
-    cash_loan_train = cash_loan[cash_loan['SK_ID_CURR'].isin(curr_train)].reset_index(drop=True)
-    cash_loan_val = cash_loan[cash_loan['SK_ID_CURR'].isin(curr_val)].reset_index(drop=True)
+    val_currs = np.load('artifacts/val_sk_currs.npy')
+    X_tr = train[~train['SK_ID_CURR'].isin(val_currs)].reset_index(drop=True)
+    X_val = train[train['SK_ID_CURR'].isin(val_currs)].reset_index(drop=True)
+    X_te = test.copy()
+    
     
     pipeline = cur_app_features()
-    x_train = pipeline.fit_transform(cash_loan_train)
-    x_val = pipeline.transform(cash_loan_val)
-    x_test = pipeline.transform(cash_loan_test)
+    x_train = pipeline.fit_transform(X_tr)
+    x_val = pipeline.transform(X_val)
+    x_test = pipeline.transform(X_te)
     
-    cash_loan_train['OCCUPATION_TYPE'] = cash_loan_train['OCCUPATION_TYPE'].fillna('unk')
-    te1_tr = target_encoding_train(cash_loan_train, columns=['CODE_GENDER', 'NAME_EDUCATION_TYPE'], alpha=50)
-    te2_tr = target_encoding_train(cash_loan_train, columns=['CODE_GENDER', 'NAME_FAMILY_STATUS'], alpha=50)
-    te3_tr = target_encoding_train(cash_loan_train, columns=['CODE_GENDER', 'OCCUPATION_TYPE'], alpha=50)
+    X_tr['OCCUPATION_TYPE'] = X_tr['OCCUPATION_TYPE'].fillna('unk')
+    te1_tr = target_encoding_train(X_tr, columns=['CODE_GENDER', 'NAME_EDUCATION_TYPE'], alpha=50)
+    te2_tr = target_encoding_train(X_tr, columns=['CODE_GENDER', 'NAME_FAMILY_STATUS'], alpha=50)
+    te3_tr = target_encoding_train(X_tr, columns=['CODE_GENDER', 'OCCUPATION_TYPE'], alpha=50)
     x_train = np.concatenate([x_train, te1_tr, te2_tr, te3_tr], axis=1)
     
-    cash_loan_val['OCCUPATION_TYPE'] = cash_loan_val['OCCUPATION_TYPE'].fillna('unk')
-    te1_val = target_encoding_inference(cash_loan_train, cash_loan_val, columns=['CODE_GENDER', 'NAME_EDUCATION_TYPE'], alpha=50)
-    te2_val = target_encoding_inference(cash_loan_train, cash_loan_val, columns=['CODE_GENDER', 'NAME_FAMILY_STATUS'], alpha=50)
-    te3_val = target_encoding_inference(cash_loan_train, cash_loan_val, columns=['CODE_GENDER', 'OCCUPATION_TYPE'], alpha=50)
+    X_val['OCCUPATION_TYPE'] = X_val['OCCUPATION_TYPE'].fillna('unk')
+    te1_val = target_encoding_inference(X_tr, X_val, columns=['CODE_GENDER', 'NAME_EDUCATION_TYPE'], alpha=50)
+    te2_val = target_encoding_inference(X_tr, X_val, columns=['CODE_GENDER', 'NAME_FAMILY_STATUS'], alpha=50)
+    te3_val = target_encoding_inference(X_tr, X_val, columns=['CODE_GENDER', 'OCCUPATION_TYPE'], alpha=50)
     x_val = np.concatenate([x_val, te1_val, te2_val, te3_val], axis=1)
     
-    cash_loan_test['OCCUPATION_TYPE'] = cash_loan_test['OCCUPATION_TYPE'].fillna('unk')
-    te1_te = target_encoding_inference(cash_loan_train, cash_loan_test, columns=['CODE_GENDER', 'NAME_EDUCATION_TYPE'], alpha=50)
-    te2_te = target_encoding_inference(cash_loan_train, cash_loan_test, columns=['CODE_GENDER', 'NAME_FAMILY_STATUS'], alpha=50)
-    te3_te = target_encoding_inference(cash_loan_train, cash_loan_test, columns=['CODE_GENDER', 'OCCUPATION_TYPE'], alpha=50)
+    X_te['OCCUPATION_TYPE'] = X_te['OCCUPATION_TYPE'].fillna('unk')
+    te1_te = target_encoding_inference(train, X_te, columns=['CODE_GENDER', 'NAME_EDUCATION_TYPE'], alpha=50)
+    te2_te = target_encoding_inference(train, X_te, columns=['CODE_GENDER', 'NAME_FAMILY_STATUS'], alpha=50)
+    te3_te = target_encoding_inference(train, X_te, columns=['CODE_GENDER', 'OCCUPATION_TYPE'], alpha=50)
     x_test = np.concatenate([x_test, te1_te, te2_te, te3_te], axis=1)
     
     
 
 #%%
-# test = pd.read_csv('data/application_test.csv')
-# x_train
-
+train['CNT_CHILDREN'].unique()
 
 
     
