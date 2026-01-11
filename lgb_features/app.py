@@ -2,10 +2,12 @@ import warnings
 warnings.filterwarnings('ignore')
 import numpy as np
 import pandas as pd
+from tqdm import tqdm
+from scipy.optimize import fsolve
 from sklearn.pipeline import make_union, make_pipeline
 from sklearn.base import BaseEstimator, TransformerMixin
-from utils.transformers import ColumnSelector, FrequencyEncoding, OneHotEncoding
 from utils.target_encoding import target_encoding_train, target_encoding_inference
+from utils.transformers import ColumnSelector, FrequencyEncoding, OneHotEncoding, ConvertType
 
 def map_cnt_children_bin(x):
     if x == 0:
@@ -73,11 +75,15 @@ class BaseFeatures(BaseEstimator, TransformerMixin):
         X['own_car_realty'] = X['FLAG_OWN_CAR'] * 2 + X['FLAG_OWN_REALTY']
         X['cnt_children_bin'] = X['CNT_CHILDREN'].map(self._map_cnt_children_bin)
         
+        X['disposable_income_avg'] = X['AMT_INCOME_TOTAL'] / (X['CNT_CHILDREN'] + 1)
+        X['pressure'] = X['AMT_CREDIT'] / (X['disposable_income_avg'] + 1e-6)
+        X['amt_income'] = np.log1p(X['AMT_INCOME_TOTAL'])
+        
         ext_feat_cols = [col for col in X.columns if 'ext_' in col and col not in ext_cols]
         new_features = ['credit_income', 'annuity_income', 'annuity_credit', 'phone_is_missing', 'employment_status',
                         'days_birth', 'days_employed', 'days_registration', 'days_id_publish', 'days_last_phone_change',
                         'employed_ratio', 'reg_interaction_ratio', 'id_iteraction_ratio', 'down_payment_ratio', 'goods_income',
-                        'own_car_realty', 'cnt_children_bin']
+                        'own_car_realty', 'cnt_children_bin', 'OWN_CAR_AGE', 'disposable_income_avg', 'pressure']
         new_features += ext_feat_cols
         return X[new_features]
 
@@ -154,52 +160,92 @@ class GroupPercentileFeatures(BaseEstimator, TransformerMixin):
         output = np.stack(output, axis=1)
         return output
 
+class CntPayment(BaseEstimator, TransformerMixin):
+    def __init__(self, apr):
+        self.apr = apr
+    
+    def _calculate_cnt_payment(self, amt_credit, amt_annuity, apr):
+        if np.isnan(amt_annuity):
+            return np.nan
+        r = apr / 100 / 12
+
+        min_payment = amt_credit * r / (1 + r)
+        if amt_annuity <= min_payment:
+            return np.nan
+
+        def equation(n):
+            return amt_annuity - (amt_credit * r * (1 + r)**n) / ((1 + r)**n - 1)
+
+        initial_guess = 12
+        n_solution = fsolve(equation, initial_guess)[0]
+
+        return int(np.round(n_solution))
+    
+    def fit(self, X, y=None):
+        return self
+    
+    def transform(self, X):
+        cnt_payments = []
+        for a, b in tqdm(X[['AMT_CREDIT', 'AMT_ANNUITY']].to_numpy(), total=X.shape[0],
+                         desc='calculating total cnt_payments'):
+            r = self._calculate_cnt_payment(a, b, self.apr)
+            cnt_payments.append(r)
+        cnt_payments = np.array(cnt_payments)[:, None]
+        return cnt_payments
+
 def cur_app_features():
-    pp = make_union(
-        BaseFeatures(),
-        GroupPercentileFeatures('OCCUPATION_TYPE'),
-        GroupPercentileFeatures('NAME_EDUCATION_TYPE'),
-        make_pipeline(
-                ColumnSelector(['NAME_TYPE_SUITE']),
-                FrequencyEncoding(min_cnt=50)
+    pp = make_pipeline(
+            make_union(
+            BaseFeatures(),
+            GroupPercentileFeatures('OCCUPATION_TYPE'),
+            GroupPercentileFeatures('NAME_EDUCATION_TYPE'),
+            make_pipeline(
+                    ColumnSelector(['NAME_TYPE_SUITE']),
+                    FrequencyEncoding(min_cnt=50)
+                ),
+            make_pipeline(
+                    ColumnSelector(['NAME_INCOME_TYPE']),
+                    FrequencyEncoding(min_cnt=20)
+                ),
+            make_pipeline(
+                    ColumnSelector(['NAME_FAMILY_STATUS']),
+                    FrequencyEncoding(min_cnt=100)
+                ),
+            make_pipeline(
+                    ColumnSelector(['NAME_HOUSING_TYPE']),
+                    FrequencyEncoding(min_cnt=100)
+                ),
+            make_pipeline(
+                    ColumnSelector(['OCCUPATION_TYPE']),
+                    FrequencyEncoding(min_cnt=100)
+                ),
+            make_pipeline(
+                    ColumnSelector(['ORGANIZATION_TYPE']),
+                    FrequencyEncoding(min_cnt=20)
+                ),
+            make_pipeline(
+                 ColumnSelector(columns=['CODE_GENDER']),
+                 OneHotEncoding()
+                ),
+            make_pipeline(
+                 ColumnSelector(columns=['FLAG_OWN_CAR']),
+                 OneHotEncoding()
+                ),
+            make_pipeline(
+                 ColumnSelector(columns=['FLAG_OWN_REALTY']),
+                 OneHotEncoding()
+                ),
+            make_pipeline(
+                 ColumnSelector(columns=['NAME_CONTRACT_TYPE']),
+                 OneHotEncoding()
+                ),
+            make_pipeline(
+                 ColumnSelector(columns=['AMT_CREDIT', 'AMT_ANNUITY']),
+                 CntPayment(apr=3.5)
+                ),
             ),
-        make_pipeline(
-                ColumnSelector(['NAME_INCOME_TYPE']),
-                FrequencyEncoding(min_cnt=20)
-            ),
-        make_pipeline(
-                ColumnSelector(['NAME_FAMILY_STATUS']),
-                FrequencyEncoding(min_cnt=100)
-            ),
-        make_pipeline(
-                ColumnSelector(['NAME_HOUSING_TYPE']),
-                FrequencyEncoding(min_cnt=100)
-            ),
-        make_pipeline(
-                ColumnSelector(['OCCUPATION_TYPE']),
-                FrequencyEncoding(min_cnt=100)
-            ),
-        make_pipeline(
-                ColumnSelector(['ORGANIZATION_TYPE']),
-                FrequencyEncoding(min_cnt=20)
-            ),
-        make_pipeline(
-             ColumnSelector(columns=['CODE_GENDER']),
-             OneHotEncoding()
-            ),
-        make_pipeline(
-             ColumnSelector(columns=['FLAG_OWN_CAR']),
-             OneHotEncoding()
-            ),
-        make_pipeline(
-             ColumnSelector(columns=['FLAG_OWN_REALTY']),
-             OneHotEncoding()
-            ),
-        make_pipeline(
-             ColumnSelector(columns=['NAME_CONTRACT_TYPE']),
-             OneHotEncoding()
-            )
-        )
+            ConvertType(dtype='float32')
+    )
     return pp
 
 if __name__ == '__main__':
@@ -228,8 +274,8 @@ if __name__ == '__main__':
         v = np.concatenate([tmp[['SK_ID_CURR']].to_numpy(), v], axis=1)
         v = pd.DataFrame(v, columns=['SK_ID_CURR', 'f'])
         z = X_tr[['SK_ID_CURR']].merge(v, how='left', on=['SK_ID_CURR'])
-        te_data.append(z[['f']].to_numpy())
-    te_data = [x_train] + te_data
+        te_data.append(z[['f']].to_numpy().astype(np.float32))
+    te_data = [X_tr[['SK_ID_CURR']].to_numpy().astype(np.float32), x_train] + te_data + [X_tr[['TARGET']].to_numpy().astype(np.float32)]
     x_train = np.concatenate(te_data, axis=1)
     
     X_val['OCCUPATION_TYPE'] = X_val['OCCUPATION_TYPE'].fillna('unk')
@@ -239,7 +285,8 @@ if __name__ == '__main__':
     te3_val = target_encoding_inference(X_tr, X_val, columns=['CODE_GENDER', 'OCCUPATION_TYPE'], alpha=50)
     te4_val = target_encoding_inference(X_tr, X_val, columns=['CODE_GENDER', 'cnt_chilren_bin'], alpha=50)
     te5_val = target_encoding_inference(X_tr, X_val, columns=['NAME_FAMILY_STATUS', 'cnt_chilren_bin'], alpha=50)
-    x_val = np.concatenate([x_val, te1_val, te2_val, te3_val, te4_val, te5_val], axis=1)
+    x_val = np.concatenate([X_val[['SK_ID_CURR']].to_numpy().astype(np.float32), x_val, te1_val, te2_val, te3_val, te4_val, te5_val,
+                            X_val[['TARGET']].to_numpy().astype(np.float32)], axis=1)
     
     X_te['OCCUPATION_TYPE'] = X_te['OCCUPATION_TYPE'].fillna('unk')
     X_te['cnt_chilren_bin'] = X_te['CNT_CHILDREN'].map(map_cnt_children_bin)
@@ -248,14 +295,17 @@ if __name__ == '__main__':
     te3_te = target_encoding_inference(train, X_te, columns=['CODE_GENDER', 'OCCUPATION_TYPE'], alpha=50)
     te4_te = target_encoding_inference(train, X_te, columns=['CODE_GENDER', 'cnt_chilren_bin'], alpha=50)
     te5_te = target_encoding_inference(train, X_te, columns=['NAME_FAMILY_STATUS', 'cnt_chilren_bin'], alpha=50)
-    x_test = np.concatenate([x_test, te1_te, te2_te, te3_te, te4_te, te5_te], axis=1)
+    x_test = np.concatenate([X_te[['SK_ID_CURR']].to_numpy().astype(np.float32), x_test, te1_te, te2_te, te3_te, te4_te, te5_te], axis=1)
     
-    
+    np.save('artifacts/train/app_features.npy', x_train)
+    np.save('artifacts/validation/app_features.npy', x_val)
+    np.save('artifacts/test/app_features.npy', x_test)
 
 #%%
-# cnt_children+family_stats, cnt_children+gender
-# train['CNT_CHILDREN_BIN'] = train['CNT_CHILDREN'].map(map_cnt_children_bin)
-# train[(train['NAME_HOUSING_TYPE']=='Co-op apartment')&(train['cnt_children_bin']=='high')]
-x_test.shape
+
+
+
+#%%
+(train['AMT_CREDIT'] / train['AMT_ANNUITY']).median()
     
     

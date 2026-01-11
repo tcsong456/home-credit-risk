@@ -1,3 +1,4 @@
+import numpy as np
 import pandas as pd
 from sklearn.preprocessing import OneHotEncoder
 from sklearn.base import BaseEstimator, TransformerMixin
@@ -89,6 +90,23 @@ class OneHotEncoding(BaseEstimator, TransformerMixin):
         X = X.copy()
         ohe_data = self.ohe.transform(X)
         return ohe_data
+
+class ConvertType(BaseEstimator, TransformerMixin):
+    def __init__(self, dtype):
+        self.dtype = dtype
+    
+    def fit(self, X, y=None):
+        return self
+    
+    def transform(self, X):
+        if self.dtype == 'float16':
+            return X.astype(np.float16)
+        elif self.dtype == 'float32':
+            return X.astype(np.float32)
+        elif self.dtype == 'float64':
+            return X.astype(np.float64)
+        else:
+            raise ValueError(f'{self.dtype} is not supported')
 
 #%%
 

@@ -1,3 +1,4 @@
+import numpy as np
 import pandas as pd
 from sklearn.model_selection import StratifiedKFold
 
@@ -27,7 +28,7 @@ def target_encoding_train(df, columns, alpha=50):
         data.append(x_val[['SK_ID_CURR', 'concat_text']])
     data = pd.concat(data, axis=0)
     data = df[['SK_ID_CURR']].merge(data, how='left', on=['SK_ID_CURR'])
-    return data[['concat_text']].to_numpy()
+    return data[['concat_text']].to_numpy().astype(np.float32)
 
 def target_encoding_inference(df_train, df_val, columns, alpha=30):
     df_train['concat_text'] = ''
@@ -44,7 +45,7 @@ def target_encoding_inference(df_train, df_val, columns, alpha=30):
         t = (n * miu + alpha * global_mean) / (n + alpha)
         te[k] = t
     df_val['concat_text'] = df_val['concat_text'].map(te)
-    return df_val[['concat_text']].to_numpy()
+    return df_val[['concat_text']].to_numpy().astype(np.float32)
 
 if __name__ == '__main__':
     train = pd.read_csv('data/application_train.csv')
