@@ -9,6 +9,7 @@ __pycache__/
 #self added
 try.py
 data/
+artifacts/
 
 # Distribution / packaging
 .Python
