@@ -1,14 +1,19 @@
 import pandas as pd
+from sklearn.preprocessing import OneHotEncoder
 from sklearn.base import BaseEstimator, TransformerMixin
 
 class ColumnSelector(BaseEstimator, TransformerMixin):
-    def __init__(self, columns):
+    def __init__(self, 
+                 columns,
+                 fillna=False):
         self.columns = columns
+        self.fillna = fillna
     
     def fit(self, X, y=None):
         return self
     
     def transform(self, X):
+        X = X.copy()
         if not isinstance(X, pd.DataFrame):
             raise KeyError('input must be a pandas dataframe')
         
@@ -16,6 +21,9 @@ class ColumnSelector(BaseEstimator, TransformerMixin):
         for c in self.columns:
             if c not in columns:
                 raise KeyError(f'{c} not in {columns}')
+            if self.fillna:
+                X[c] = X[c].fillna('unk')
+                
         return X[self.columns]
 
 class ConcatTexts(BaseEstimator, TransformerMixin):
@@ -70,5 +78,16 @@ class FrequencyEncoding(BaseEstimator, TransformerMixin):
         if len(fe.shape) == 1:
             return fe[:, None]
         return fe
+
+class OneHotEncoding(BaseEstimator, TransformerMixin):
+    def fit(self, X, y=None):
+        self.ohe = OneHotEncoder(sparse_output=False)
+        self.ohe.fit(X)
+        return self
+    
+    def transform(self, X):
+        X = X.copy()
+        ohe_data = self.ohe.transform(X)
+        return ohe_data
 
 #%%

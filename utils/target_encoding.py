@@ -31,6 +31,7 @@ def target_encoding_train(df, columns, alpha=50):
 
 def target_encoding_inference(df_train, df_val, columns, alpha=30):
     df_train['concat_text'] = ''
+    df_val['concat_text'] = ''
     for c in ['CODE_GENDER', 'NAME_EDUCATION_TYPE']:
         df_train['concat_text'] = df_train['concat_text'] + ' ' + df_train[c]
         df_val['concat_text'] = df_val['concat_text'] + ' ' + df_val[c]
