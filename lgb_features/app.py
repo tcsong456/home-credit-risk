@@ -7,9 +7,25 @@ from sklearn.base import BaseEstimator, TransformerMixin
 from utils.transformers import ColumnSelector, FrequencyEncoding, OneHotEncoding
 from utils.target_encoding import target_encoding_train, target_encoding_inference
 
+def map_cnt_children_bin(x):
+    if x == 0:
+        return 'low'
+    elif x == 1:
+        return 'mid'
+    else:
+        return 'high'
+
 class BaseFeatures(BaseEstimator, TransformerMixin):
     def fit(self, X, *args):
         return self
+    
+    def _map_cnt_children_bin(self, x):
+        if x == 0:
+            return 0
+        elif x == 1:
+            return 1
+        else:
+            return 2
     
     def transform(self, X):
         X = X.copy()
@@ -55,12 +71,13 @@ class BaseFeatures(BaseEstimator, TransformerMixin):
         X['FLAG_OWN_CAR'] = X['FLAG_OWN_CAR'].map({'Y': 1, 'N': 0})
         X['FLAG_OWN_REALTY'] = X['FLAG_OWN_REALTY'].map({'Y': 1, 'N': 0})
         X['own_car_realty'] = X['FLAG_OWN_CAR'] * 2 + X['FLAG_OWN_REALTY']
+        X['cnt_children_bin'] = X['CNT_CHILDREN'].map(self._map_cnt_children_bin)
         
         ext_feat_cols = [col for col in X.columns if 'ext_' in col and col not in ext_cols]
         new_features = ['credit_income', 'annuity_income', 'annuity_credit', 'phone_is_missing', 'employment_status',
                         'days_birth', 'days_employed', 'days_registration', 'days_id_publish', 'days_last_phone_change',
                         'employed_ratio', 'reg_interaction_ratio', 'id_iteraction_ratio', 'down_payment_ratio', 'goods_income',
-                        'own_car_realty']
+                        'own_car_realty', 'cnt_children_bin']
         new_features += ext_feat_cols
         return X[new_features]
 
@@ -193,36 +210,52 @@ if __name__ == '__main__':
     X_val = train[train['SK_ID_CURR'].isin(val_currs)].reset_index(drop=True)
     X_te = test.copy()
     
-    
     pipeline = cur_app_features()
     x_train = pipeline.fit_transform(X_tr)
     x_val = pipeline.transform(X_val)
     x_test = pipeline.transform(X_te)
     
     X_tr['OCCUPATION_TYPE'] = X_tr['OCCUPATION_TYPE'].fillna('unk')
-    te1_tr = target_encoding_train(X_tr, columns=['CODE_GENDER', 'NAME_EDUCATION_TYPE'], alpha=50)
-    te2_tr = target_encoding_train(X_tr, columns=['CODE_GENDER', 'NAME_FAMILY_STATUS'], alpha=50)
-    te3_tr = target_encoding_train(X_tr, columns=['CODE_GENDER', 'OCCUPATION_TYPE'], alpha=50)
-    x_train = np.concatenate([x_train, te1_tr, te2_tr, te3_tr], axis=1)
+    X_tr['cnt_chilren_bin'] = X_tr['CNT_CHILDREN'].map(map_cnt_children_bin)
+    tmp = X_tr[~(X_tr['CODE_GENDER']=='XNA')&~(X_tr['NAME_FAMILY_STATUS']=='Unknown')]
+    te1_tr = target_encoding_train(tmp, columns=['CODE_GENDER', 'NAME_EDUCATION_TYPE'], alpha=50)
+    te2_tr = target_encoding_train(tmp, columns=['CODE_GENDER', 'NAME_FAMILY_STATUS'], alpha=50)
+    te3_tr = target_encoding_train(tmp, columns=['CODE_GENDER', 'OCCUPATION_TYPE'], alpha=50)
+    te4_tr = target_encoding_train(tmp, columns=['CODE_GENDER', 'cnt_chilren_bin'], alpha=50)
+    te5_tr = target_encoding_train(tmp, columns=['NAME_FAMILY_STATUS', 'cnt_chilren_bin'], alpha=50)
+    te_data = []
+    for v in [te1_tr, te2_tr, te3_tr, te4_tr, te5_tr]:
+        v = np.concatenate([tmp[['SK_ID_CURR']].to_numpy(), v], axis=1)
+        v = pd.DataFrame(v, columns=['SK_ID_CURR', 'f'])
+        z = X_tr[['SK_ID_CURR']].merge(v, how='left', on=['SK_ID_CURR'])
+        te_data.append(z[['f']].to_numpy())
+    te_data = [x_train] + te_data
+    x_train = np.concatenate(te_data, axis=1)
     
     X_val['OCCUPATION_TYPE'] = X_val['OCCUPATION_TYPE'].fillna('unk')
+    X_val['cnt_chilren_bin'] = X_val['CNT_CHILDREN'].map(map_cnt_children_bin)
     te1_val = target_encoding_inference(X_tr, X_val, columns=['CODE_GENDER', 'NAME_EDUCATION_TYPE'], alpha=50)
     te2_val = target_encoding_inference(X_tr, X_val, columns=['CODE_GENDER', 'NAME_FAMILY_STATUS'], alpha=50)
     te3_val = target_encoding_inference(X_tr, X_val, columns=['CODE_GENDER', 'OCCUPATION_TYPE'], alpha=50)
-    x_val = np.concatenate([x_val, te1_val, te2_val, te3_val], axis=1)
+    te4_val = target_encoding_inference(X_tr, X_val, columns=['CODE_GENDER', 'cnt_chilren_bin'], alpha=50)
+    te5_val = target_encoding_inference(X_tr, X_val, columns=['NAME_FAMILY_STATUS', 'cnt_chilren_bin'], alpha=50)
+    x_val = np.concatenate([x_val, te1_val, te2_val, te3_val, te4_val, te5_val], axis=1)
     
     X_te['OCCUPATION_TYPE'] = X_te['OCCUPATION_TYPE'].fillna('unk')
+    X_te['cnt_chilren_bin'] = X_te['CNT_CHILDREN'].map(map_cnt_children_bin)
     te1_te = target_encoding_inference(train, X_te, columns=['CODE_GENDER', 'NAME_EDUCATION_TYPE'], alpha=50)
     te2_te = target_encoding_inference(train, X_te, columns=['CODE_GENDER', 'NAME_FAMILY_STATUS'], alpha=50)
     te3_te = target_encoding_inference(train, X_te, columns=['CODE_GENDER', 'OCCUPATION_TYPE'], alpha=50)
-    x_test = np.concatenate([x_test, te1_te, te2_te, te3_te], axis=1)
+    te4_te = target_encoding_inference(train, X_te, columns=['CODE_GENDER', 'cnt_chilren_bin'], alpha=50)
+    te5_te = target_encoding_inference(train, X_te, columns=['NAME_FAMILY_STATUS', 'cnt_chilren_bin'], alpha=50)
+    x_test = np.concatenate([x_test, te1_te, te2_te, te3_te, te4_te, te5_te], axis=1)
     
     
 
 #%%
-train['CNT_CHILDREN'].unique()
-
-
-    
+# cnt_children+family_stats, cnt_children+gender
+# train['CNT_CHILDREN_BIN'] = train['CNT_CHILDREN'].map(map_cnt_children_bin)
+# train[(train['NAME_HOUSING_TYPE']=='Co-op apartment')&(train['cnt_children_bin']=='high')]
+x_test.shape
     
     
