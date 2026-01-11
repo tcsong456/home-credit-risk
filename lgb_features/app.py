@@ -17,6 +17,16 @@ def map_cnt_children_bin(x):
     else:
         return 'high'
 
+def emp_stats(x):
+    if x < 2.8:
+        return 'short'
+    elif x >= 2.8 and x < 7:
+        return 'medium'
+    elif x >= 7 and x < 50:
+        return 'long'
+    else:
+        return 'retired'
+
 class BaseFeatures(BaseEstimator, TransformerMixin):
     def fit(self, X, *args):
         return self
@@ -37,8 +47,11 @@ class BaseFeatures(BaseEstimator, TransformerMixin):
         X['phone_is_missing'] = (X['DAYS_LAST_PHONE_CHANGE'] == 0).apply(int)
         X['employment_status'] = (X['DAYS_EMPLOYED'] == 365243).apply(int)
         X['DAYS_EMPLOYED'] = X['DAYS_EMPLOYED'].replace(365243, np.nan)
+        X['DAYS_DIFF_EMP_REG'] = X['DAYS_REGISTRATION'] - X['DAYS_EMPLOYED']
+        X['DAYS_DIFF_EMP_ID'] = X['DAYS_ID_PUBLISH'] - X['DAYS_EMPLOYED']
         
-        days_normaliztion_col = ['DAYS_BIRTH', 'DAYS_EMPLOYED', 'DAYS_REGISTRATION', 'DAYS_ID_PUBLISH','DAYS_LAST_PHONE_CHANGE']
+        days_normaliztion_col = ['DAYS_BIRTH', 'DAYS_EMPLOYED', 'DAYS_REGISTRATION', 'DAYS_ID_PUBLISH','DAYS_LAST_PHONE_CHANGE',
+                                 'DAYS_DIFF_EMP_REG', 'DAYS_DIFF_EMP_ID']
         for col in days_normaliztion_col:
             X[col.lower()] = abs(X[col] / 365)
         
@@ -77,13 +90,14 @@ class BaseFeatures(BaseEstimator, TransformerMixin):
         
         X['disposable_income_avg'] = X['AMT_INCOME_TOTAL'] / (X['CNT_CHILDREN'] + 1)
         X['pressure'] = X['AMT_CREDIT'] / (X['disposable_income_avg'] + 1e-6)
-        X['amt_income'] = np.log1p(X['AMT_INCOME_TOTAL'])
         
         ext_feat_cols = [col for col in X.columns if 'ext_' in col and col not in ext_cols]
         new_features = ['credit_income', 'annuity_income', 'annuity_credit', 'phone_is_missing', 'employment_status',
                         'days_birth', 'days_employed', 'days_registration', 'days_id_publish', 'days_last_phone_change',
+                        'days_diff_emp_reg', 'days_diff_emp_id',
                         'employed_ratio', 'reg_interaction_ratio', 'id_iteraction_ratio', 'down_payment_ratio', 'goods_income',
-                        'own_car_realty', 'cnt_children_bin', 'OWN_CAR_AGE', 'disposable_income_avg', 'pressure']
+                        'own_car_realty', 'cnt_children_bin', 'OWN_CAR_AGE', 'disposable_income_avg', 'pressure',
+                        'AMT_INCOME_TOTAL', 'AMT_CREDIT', 'AMT_ANNUITY', 'CNT_CHILDREN', 'REGION_POPULATION_RELATIVE']
         new_features += ext_feat_cols
         return X[new_features]
 
@@ -224,24 +238,32 @@ def cur_app_features():
                     FrequencyEncoding(min_cnt=20)
                 ),
             make_pipeline(
-                 ColumnSelector(columns=['CODE_GENDER']),
-                 OneHotEncoding()
+                    ColumnSelector(['NAME_EDUCATION_TYPE']),
+                    FrequencyEncoding(min_cnt=20)
                 ),
             make_pipeline(
-                 ColumnSelector(columns=['FLAG_OWN_CAR']),
-                 OneHotEncoding()
+                  ColumnSelector(columns=['CODE_GENDER']),
+                  OneHotEncoding()
                 ),
             make_pipeline(
-                 ColumnSelector(columns=['FLAG_OWN_REALTY']),
-                 OneHotEncoding()
+                  ColumnSelector(columns=['FLAG_OWN_CAR']),
+                  OneHotEncoding()
                 ),
             make_pipeline(
-                 ColumnSelector(columns=['NAME_CONTRACT_TYPE']),
-                 OneHotEncoding()
+                  ColumnSelector(columns=['FLAG_OWN_REALTY']),
+                  OneHotEncoding()
                 ),
             make_pipeline(
-                 ColumnSelector(columns=['AMT_CREDIT', 'AMT_ANNUITY']),
-                 CntPayment(apr=3.5)
+                  ColumnSelector(columns=['NAME_CONTRACT_TYPE']),
+                  OneHotEncoding()
+                ),
+            make_pipeline(
+                  ColumnSelector(columns=['employ_years']),
+                  OneHotEncoding()
+                ),
+            make_pipeline(
+                  ColumnSelector(columns=['AMT_CREDIT', 'AMT_ANNUITY']),
+                  CntPayment(apr=3.5)
                 ),
             ),
             ConvertType(dtype='float32')
@@ -251,6 +273,20 @@ def cur_app_features():
 if __name__ == '__main__':
     train = pd.read_csv('data/application_train.csv')
     test = pd.read_csv('data/application_test.csv')
+    train['OCCUPATION_TYPE'] = train['OCCUPATION_TYPE'].fillna('unk')
+    train['cnt_chilren_bin'] = train['CNT_CHILDREN'].map(map_cnt_children_bin)
+    employ_years = abs(train.loc[train['DAYS_EMPLOYED'] != 365243, 'DAYS_EMPLOYED'] / 365)
+    train.loc[employ_years.index, 'employ_years'] = employ_years
+    employ_years = train['employ_years'].fillna(51)
+    train['employ_years'] = employ_years.map(emp_stats)
+    
+    test['OCCUPATION_TYPE'] = test['OCCUPATION_TYPE'].fillna('unk')
+    test['cnt_chilren_bin'] = test['CNT_CHILDREN'].map(map_cnt_children_bin)
+    employ_years = abs(test.loc[test['DAYS_EMPLOYED'] != 365243, 'DAYS_EMPLOYED'] / 365)
+    test.loc[employ_years.index, 'employ_years'] = employ_years
+    employ_years = test['employ_years'].fillna(51)
+    test['employ_years'] = employ_years.map(emp_stats)
+    
     val_currs = np.load('artifacts/val_sk_currs.npy')
     X_tr = train[~train['SK_ID_CURR'].isin(val_currs)].reset_index(drop=True)
     X_val = train[train['SK_ID_CURR'].isin(val_currs)].reset_index(drop=True)
@@ -261,49 +297,18 @@ if __name__ == '__main__':
     x_val = pipeline.transform(X_val)
     x_test = pipeline.transform(X_te)
     
-    X_tr['OCCUPATION_TYPE'] = X_tr['OCCUPATION_TYPE'].fillna('unk')
-    X_tr['cnt_chilren_bin'] = X_tr['CNT_CHILDREN'].map(map_cnt_children_bin)
-    tmp = X_tr[~(X_tr['CODE_GENDER']=='XNA')&~(X_tr['NAME_FAMILY_STATUS']=='Unknown')]
-    te1_tr = target_encoding_train(tmp, columns=['CODE_GENDER', 'NAME_EDUCATION_TYPE'], alpha=50)
-    te2_tr = target_encoding_train(tmp, columns=['CODE_GENDER', 'NAME_FAMILY_STATUS'], alpha=50)
-    te3_tr = target_encoding_train(tmp, columns=['CODE_GENDER', 'OCCUPATION_TYPE'], alpha=50)
-    te4_tr = target_encoding_train(tmp, columns=['CODE_GENDER', 'cnt_chilren_bin'], alpha=50)
-    te5_tr = target_encoding_train(tmp, columns=['NAME_FAMILY_STATUS', 'cnt_chilren_bin'], alpha=50)
-    te_data = []
-    for v in [te1_tr, te2_tr, te3_tr, te4_tr, te5_tr]:
-        v = np.concatenate([tmp[['SK_ID_CURR']].to_numpy(), v], axis=1)
-        v = pd.DataFrame(v, columns=['SK_ID_CURR', 'f'])
-        z = X_tr[['SK_ID_CURR']].merge(v, how='left', on=['SK_ID_CURR'])
-        te_data.append(z[['f']].to_numpy().astype(np.float32))
-    te_data = [X_tr[['SK_ID_CURR']].to_numpy().astype(np.float32), x_train] + te_data + [X_tr[['TARGET']].to_numpy().astype(np.float32)]
-    x_train = np.concatenate(te_data, axis=1)
+    x_train = np.concatenate([X_tr[['SK_ID_CURR']].to_numpy().astype(np.float32), 
+                              X_tr[['TARGET']].to_numpy().astype(np.float32), x_train], axis=1)
     
-    X_val['OCCUPATION_TYPE'] = X_val['OCCUPATION_TYPE'].fillna('unk')
-    X_val['cnt_chilren_bin'] = X_val['CNT_CHILDREN'].map(map_cnt_children_bin)
-    te1_val = target_encoding_inference(X_tr, X_val, columns=['CODE_GENDER', 'NAME_EDUCATION_TYPE'], alpha=50)
-    te2_val = target_encoding_inference(X_tr, X_val, columns=['CODE_GENDER', 'NAME_FAMILY_STATUS'], alpha=50)
-    te3_val = target_encoding_inference(X_tr, X_val, columns=['CODE_GENDER', 'OCCUPATION_TYPE'], alpha=50)
-    te4_val = target_encoding_inference(X_tr, X_val, columns=['CODE_GENDER', 'cnt_chilren_bin'], alpha=50)
-    te5_val = target_encoding_inference(X_tr, X_val, columns=['NAME_FAMILY_STATUS', 'cnt_chilren_bin'], alpha=50)
-    x_val = np.concatenate([X_val[['SK_ID_CURR']].to_numpy().astype(np.float32), x_val, te1_val, te2_val, te3_val, te4_val, te5_val,
-                            X_val[['TARGET']].to_numpy().astype(np.float32)], axis=1)
-    
-    X_te['OCCUPATION_TYPE'] = X_te['OCCUPATION_TYPE'].fillna('unk')
-    X_te['cnt_chilren_bin'] = X_te['CNT_CHILDREN'].map(map_cnt_children_bin)
-    te1_te = target_encoding_inference(train, X_te, columns=['CODE_GENDER', 'NAME_EDUCATION_TYPE'], alpha=50)
-    te2_te = target_encoding_inference(train, X_te, columns=['CODE_GENDER', 'NAME_FAMILY_STATUS'], alpha=50)
-    te3_te = target_encoding_inference(train, X_te, columns=['CODE_GENDER', 'OCCUPATION_TYPE'], alpha=50)
-    te4_te = target_encoding_inference(train, X_te, columns=['CODE_GENDER', 'cnt_chilren_bin'], alpha=50)
-    te5_te = target_encoding_inference(train, X_te, columns=['NAME_FAMILY_STATUS', 'cnt_chilren_bin'], alpha=50)
-    x_test = np.concatenate([X_te[['SK_ID_CURR']].to_numpy().astype(np.float32), x_test, te1_te, te2_te, te3_te, te4_te, te5_te], axis=1)
+    x_val = np.concatenate([X_val[['SK_ID_CURR']].to_numpy().astype(np.float32), 
+                            X_val[['TARGET']].to_numpy().astype(np.float32), x_val], axis=1)
     
     np.save('artifacts/train/app_features.npy', x_train)
     np.save('artifacts/validation/app_features.npy', x_val)
     np.save('artifacts/test/app_features.npy', x_test)
 
 #%%
-
-
+column_desc = pd.read_csv('data/HomeCredit_columns_description.csv', encoding="latin1")
 
 #%%
 (train['AMT_CREDIT'] / train['AMT_ANNUITY']).median()

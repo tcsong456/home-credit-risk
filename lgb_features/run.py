@@ -7,17 +7,17 @@ ft_name = ['app_features']
 for f in ft_name:
     x_train = np.load(f'artifacts/train/{f}.npy')
     if f == 'app_features':
-        y_train = x_train[:, -1]
-        x_train = x_train[:, 1: -1]
+        y_train = x_train[:, 1]
+        x_train = x_train[:, 2:]
     
     x_val = np.load(f'artifacts/validation/{f}.npy')
     if f == 'app_features':
-        y_val = x_val[:, -1]
-        x_val = x_val[:, 1: -1]
+        y_val = x_val[:, 1]
+        x_val = x_val[:, 2:]
     
     x_te = np.load(f'artifacts/test/{f}.npy')
-    if f == 'app_features':
-        x_te = x_te[:, 1:]
+    # if f == 'app_features':
+    #     x_te = x_te[:, 1:]
 
 params = {
     'num_leaves': 100,
@@ -49,3 +49,5 @@ ss = pd.read_csv('data/sample_submission.csv')
 ss['TARGET'] = p_test
 ss.to_csv('artifacts/submission.csv', index=False)
 #%%
+    
+
