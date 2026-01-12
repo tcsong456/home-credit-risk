@@ -10,6 +10,7 @@ __pycache__/
 try.py
 data/
 artifacts/
+trash.py
 
 # Distribution / packaging
 .Python

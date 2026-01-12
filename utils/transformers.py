@@ -48,7 +48,7 @@ class ConcatTexts(BaseEstimator, TransformerMixin):
                 raise KeyError(f'{c} not in {columns}')
             X[c] = X[c].fillna('')
             X[self.out_col] = X[self.out_col] + self.delimiter + X[c]
-        return X[self.out_col]
+        return X[[self.out_col]]
 
 class FrequencyEncoding(BaseEstimator, TransformerMixin):
     def __init__(self, min_cnt=10):
