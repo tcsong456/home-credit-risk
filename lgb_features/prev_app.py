@@ -5,6 +5,16 @@ import pandas as pd
 from tqdm import tqdm
 from scipy.optimize import fsolve
 
+def return_status(r):
+    if 'Approved' in r:
+        return 'Approved'
+    elif 'Refused' in r:
+        return 'Refused'
+    elif 'Canceled' in r:
+        return 'Canceled'
+    else:
+        return 'Unused offer'
+
 def solve_interest_rate(P, A, n):
     if P <= 0 or A <= 0 or n <= 0:
         return np.nan
@@ -19,11 +29,9 @@ def solve_interest_rate(P, A, n):
         return np.nan
 
 def aggregation(df, col):
-    columns = ['SK_ID_CURR', col]
-    d_0 = df[df['seq']==0][columns].set_index('SK_ID_CURR')
-    d_3 = df[df['seq']<3].groupby(['SK_ID_CURR'])[col].agg(['min', 'max', 'mean', 'median','std'])
+    d_0 = df[df['DAYS_DECISION']>=-365].groupby(['SK_ID_CURR'])[col].agg(['min', 'max', 'mean', 'median','std'])
     d = df.groupby(['SK_ID_CURR'])[col].agg(['min', 'max', 'mean', 'median','std'])
-    d = pd.concat([d_0, d_3, d], axis=1)
+    d = pd.concat([d_0, d], axis=1)
     return d
 
 def build_features(df):
@@ -38,10 +46,17 @@ def build_features(df):
     z = df[df['NAME_CONTRACT_STATUS']=='Refused']
     days_since_last_refusal = z.groupby(['SK_ID_CURR'])['DAYS_DECISION'].max()
     
-    contract_status_0 = df[df['seq']==0].groupby(['SK_ID_CURR', 'NAME_CONTRACT_STATUS']).size().unstack().fillna(0)
-    contract_status_3 = df[df['seq']<3].groupby(['SK_ID_CURR', 'NAME_CONTRACT_STATUS'])['ref'].sum().unstack().fillna(0)
-    contract_status_3 = contract_status_3 / contract_status_3.sum(axis=1)[:, None]
-    contract_status = df.groupby(['SK_ID_CURR', 'NAME_CONTRACT_STATUS'])['ref'].sum().unstack().fillna(0)
+    pure_contract_status0 = df[df['DAYS_DECISION']>=-365].groupby(['SK_ID_CURR', 'NAME_CONTRACT_STATUS'])['ref'].sum().unstack().fillna(0)
+    pure_contract_status0 = pure_contract_status0 / pure_contract_status0.sum(axis=1)[:, None]
+    pure_contract_status = df.groupby(['SK_ID_CURR', 'NAME_CONTRACT_STATUS'])['ref'].sum().unstack().fillna(0)
+    pure_contract_status = pure_contract_status / pure_contract_status.sum(axis=1)[:, None]
+    
+    single_day_apply = df.groupby(['SK_ID_CURR', 'DAYS_DECISION'])['NAME_CONTRACT_STATUS'].apply(set)
+    single_day_apply = single_day_apply.map(return_status).reset_index()
+    single_day_apply['ref'] = 1
+    contract_status_0 = single_day_apply[single_day_apply['DAYS_DECISION']>=-365].groupby(['SK_ID_CURR', 'NAME_CONTRACT_STATUS'])['ref'].sum().unstack().fillna(0)
+    contract_status_0 = contract_status_0 / contract_status_0.sum(axis=1)[:, None]
+    contract_status = single_day_apply.groupby(['SK_ID_CURR', 'NAME_CONTRACT_STATUS'])['ref'].sum().unstack().fillna(0)
     contract_status = contract_status / contract_status.sum(axis=1)[:, None]
     
     approve = df[df['NAME_CONTRACT_STATUS'].isin(['Approved'])]
@@ -69,6 +84,14 @@ def build_features(df):
     loan_type = df.groupby(['SK_ID_CURR', 'NAME_CONTRACT_TYPE'])['ref'].sum().unstack().fillna(0)
     loan_purpose = df.groupby(['SK_ID_CURR', 'NAME_CASH_LOAN_PURPOSE'])['ref'].sum().unstack().fillna(0)
     reject_reason = df.groupby(['SK_ID_CURR', 'CODE_REJECT_REASON'])['ref'].sum().unstack().fillna(0)
+    goods_cate_pct = df.groupby('SK_ID_CURR')['goods_cate_pct'].agg(['min', 'max', 'mean', 'median','std'])
+    
+    z = df.groupby(['SK_ID_CURR', 'DAYS_DECISION'])['ref'].sum().reset_index()
+    max_apply_per_day = z.groupby(['SK_ID_CURR'])['ref'].max()
+    unique_applies = z.groupby(['SK_ID_CURR']).size()
+    z['multiple_applys'] = z['ref'] > 1
+    mutiple_applies = z.groupby(['SK_ID_CURR'])['multiple_applys'].sum()
+    multiple_apply_ratio = mutiple_applies / unique_applies
     
     app_credit = aggregation(df, 'amt_credit_diff')
     app_credit_ratio = aggregation(df, 'amt_credit_ratio')
@@ -78,11 +101,12 @@ def build_features(df):
     annuity_income_ratio = aggregation(df, 'annuity_income_ratio')
     credit_income_ratio = aggregation(df, 'credit_income_ratio')
     
-    x = pd.concat([active_status, active_days, active_days_per_loan, last_loan, contract_status_0, contract_status_3, contract_status,
+    x = pd.concat([active_status, active_days, active_days_per_loan, last_loan, contract_status_0, contract_status,
                    app_credit, app_credit_ratio, interest_portion, interest_rate, down_payment_ratio, annuity_income_ratio,
                    first_loan, credit_income_ratio, f1, f2, f3, f4, days_since_last_approval, days_since_last_refusal,
                    appr_credit_app, ref_credit_app, appr_credit_income, ref_credit_income, credit_sum, credit_pct, credit_income_pct,
-                   credit_app_pct, apply_freq, loan_type, loan_purpose, reject_reason], axis=1)
+                   credit_app_pct, apply_freq, loan_type, loan_purpose, reject_reason, goods_cate_pct, max_apply_per_day,
+                   multiple_apply_ratio, pure_contract_status0, pure_contract_status], axis=1)
     return x
 
 if __name__ == '__main__':
@@ -122,6 +146,7 @@ if __name__ == '__main__':
     prev_app['f2'] = prev_app['RATE_INTEREST_PRIVILEGED'] / prev_app['RATE_INTEREST_PRIMARY']
     
     prev_app['apply_interval'] = prev_app.groupby(['SK_ID_CURR'])['DAYS_DECISION'].diff()
+    prev_app['goods_cate_pct'] = prev_app.groupby(['NAME_GOODS_CATEGORY'])['AMT_GOODS_PRICE'].rank(pct=True)
     
     x = build_features(prev_app)
     val_currs = np.load('artifacts/val_sk_currs.npy')
@@ -150,10 +175,17 @@ b = prev_app[~pd.isnull(prev_app['RATE_INTEREST_PRIMARY'])]
 
 
 #%%
-# z = prev_app[prev_app['NAME_CONTRACT_TYPE'].isin(['Cash loans', 'Consumer loans'])]
-prev_app['CODE_REJECT_REASON'].value_counts()
+# z = prev_app[prev_app['NAME_CONTRACT_TYPE'].isin(['Revolving loans'])]
+# prev_app['NAME_GOODS_CATEGORY'].value_counts()
 
 
+
+
+
+# x = z[z['multiple_applys']]
+
+#%%
+prev_app['NAME_CONTRACT_STATUS'].value_counts()
     
 
 
