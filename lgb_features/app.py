@@ -372,6 +372,7 @@ if __name__ == '__main__':
     
     x_val = np.concatenate([X_val[['SK_ID_CURR']].to_numpy().astype(np.float32), 
                             X_val[['TARGET']].to_numpy().astype(np.float32), x_val], axis=1)
+    x_test = np.concatenate([X_te[['SK_ID_CURR']].to_numpy().astype(np.float32), x_test], axis=1)
     
     np.save('artifacts/train/app_features.npy', x_train)
     np.save('artifacts/validation/app_features.npy', x_val)

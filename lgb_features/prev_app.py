@@ -1,0 +1,196 @@
+import warnings
+warnings.filterwarnings('ignore')
+import numpy as np
+import pandas as pd
+from tqdm import tqdm
+from scipy.optimize import fsolve
+
+def return_status(r):
+    if 'Approved' in r:
+        return 'Approved'
+    elif 'Refused' in r:
+        return 'Refused'
+    elif 'Canceled' in r:
+        return 'Canceled'
+    else:
+        return 'Unused offer'
+
+def solve_interest_rate(P, A, n):
+    if P <= 0 or A <= 0 or n <= 0:
+        return np.nan
+    
+    def f(r):
+        return P * (r * (1 + r)**n) / ((1 + r)**n - 1) - A
+    
+    try:
+        r = fsolve(f, 0.03)[0]
+        return r
+    except:
+        return np.nan
+
+def aggregation(df, col):
+    d_0 = df[df['DAYS_DECISION']>=-365].groupby(['SK_ID_CURR'])[col].agg(['min', 'max', 'mean', 'median','std'])
+    d = df.groupby(['SK_ID_CURR'])[col].agg(['min', 'max', 'mean', 'median','std'])
+    d = pd.concat([d_0, d], axis=1)
+    return d
+
+def build_features(df):
+    active_status = df.groupby('SK_ID_CURR')['NAME_CONTRACT_TYPE'].count()
+    active_days = df.groupby(['SK_ID_CURR'])['DAYS_DECISION'].min() - df.groupby(['SK_ID_CURR'])['DAYS_DECISION'].max()
+    active_days = active_days.map(abs)
+    active_days_per_loan = active_days / active_status
+    first_loan = df.groupby(['SK_ID_CURR'])['DAYS_DECISION'].min().map(abs)
+    last_loan = df.groupby(['SK_ID_CURR'])['DAYS_DECISION'].max().map(abs)
+    z = df[df['NAME_CONTRACT_STATUS']=='Approved']
+    days_since_last_approval = z.groupby(['SK_ID_CURR'])['DAYS_DECISION'].max()
+    z = df[df['NAME_CONTRACT_STATUS']=='Refused']
+    days_since_last_refusal = z.groupby(['SK_ID_CURR'])['DAYS_DECISION'].max()
+    
+    pure_contract_status0 = df[df['DAYS_DECISION']>=-365].groupby(['SK_ID_CURR', 'NAME_CONTRACT_STATUS'])['ref'].sum().unstack().fillna(0)
+    pure_contract_status0 = pure_contract_status0 / pure_contract_status0.sum(axis=1)[:, None]
+    pure_contract_status = df.groupby(['SK_ID_CURR', 'NAME_CONTRACT_STATUS'])['ref'].sum().unstack().fillna(0)
+    pure_contract_status = pure_contract_status / pure_contract_status.sum(axis=1)[:, None]
+    
+    single_day_apply = df.groupby(['SK_ID_CURR', 'DAYS_DECISION'])['NAME_CONTRACT_STATUS'].apply(set)
+    single_day_apply = single_day_apply.map(return_status).reset_index()
+    single_day_apply['ref'] = 1
+    contract_status_0 = single_day_apply[single_day_apply['DAYS_DECISION']>=-365].groupby(['SK_ID_CURR', 'NAME_CONTRACT_STATUS'])['ref'].sum().unstack().fillna(0)
+    contract_status_0 = contract_status_0 / contract_status_0.sum(axis=1)[:, None]
+    contract_status = single_day_apply.groupby(['SK_ID_CURR', 'NAME_CONTRACT_STATUS'])['ref'].sum().unstack().fillna(0)
+    contract_status = contract_status / contract_status.sum(axis=1)[:, None]
+    
+    approve = df[df['NAME_CONTRACT_STATUS'].isin(['Approved'])]
+    appr_credit_app = approve.groupby(['SK_ID_CURR'])['credit_app_ratio'].agg(['min', 'max', 'mean', 'median','std'])
+    appr_credit_income = approve.groupby(['SK_ID_CURR'])['credit_income_ratio'].agg(['min', 'max', 'mean', 'median','std'])
+    ref = df[df['NAME_CONTRACT_STATUS'].isin(['Refused'])]
+    ref_credit_app = ref.groupby(['SK_ID_CURR'])['credit_app_ratio'].agg(['min', 'max', 'mean', 'median','std'])
+    ref_credit_income = ref.groupby(['SK_ID_CURR'])['credit_income_ratio'].agg(['min', 'max', 'mean', 'median','std'])
+
+    f1 = prev_app.groupby(['SK_ID_CURR'])['RATE_INTEREST_PRIMARY'].mean()
+    f2 = prev_app.groupby(['SK_ID_CURR'])['RATE_INTEREST_PRIVILEGED'].mean()
+    f3 = prev_app.groupby(['SK_ID_CURR'])['f1'].mean()
+    f4 = prev_app.groupby(['SK_ID_CURR'])['f2'].mean()
+    
+    non_revolving_loan = df[df['NAME_CONTRACT_TYPE'].isin(['Cash loans', 'Consumer loans'])]
+    credit_sum = non_revolving_loan.groupby(['SK_ID_CURR'])['AMT_CREDIT'].sum()
+    non_revolving_loan['credit_pct'] = non_revolving_loan["AMT_CREDIT"].rank(pct=True)
+    credit_pct = non_revolving_loan.groupby(['SK_ID_CURR'])['credit_pct'].agg(['min', 'max', 'mean', 'median','std'])
+    non_revolving_loan['credit_income_pct'] = non_revolving_loan["credit_income_ratio"].rank(pct=True)
+    non_revolving_loan['credit_app_pct'] = non_revolving_loan["credit_app_ratio"].rank(pct=True)
+    credit_income_pct = non_revolving_loan.groupby(['SK_ID_CURR'])['credit_income_pct'].agg(['min', 'max', 'mean', 'median','std'])
+    credit_app_pct = non_revolving_loan.groupby(['SK_ID_CURR'])['credit_app_pct'].agg(['min', 'max', 'mean', 'median','std'])
+    
+    apply_freq = df.groupby('SK_ID_CURR')['apply_interval'].agg(['min', 'max', 'mean', 'median','std'])
+    loan_type = df.groupby(['SK_ID_CURR', 'NAME_CONTRACT_TYPE'])['ref'].sum().unstack().fillna(0)
+    loan_purpose = df.groupby(['SK_ID_CURR', 'NAME_CASH_LOAN_PURPOSE'])['ref'].sum().unstack().fillna(0)
+    reject_reason = df.groupby(['SK_ID_CURR', 'CODE_REJECT_REASON'])['ref'].sum().unstack().fillna(0)
+    goods_cate_pct = df.groupby('SK_ID_CURR')['goods_cate_pct'].agg(['min', 'max', 'mean', 'median','std'])
+    payment_type = df.groupby(['SK_ID_CURR', 'NAME_PAYMENT_TYPE'])['ref'].sum().unstack().fillna(0)
+    type_suite = df.groupby(['SK_ID_CURR', 'NAME_TYPE_SUITE'])['ref'].sum().unstack().fillna(0)
+    client_type = df.groupby(['SK_ID_CURR', 'NAME_CLIENT_TYPE'])['ref'].sum().unstack().fillna(0)
+    goods_cate = df.groupby(['SK_ID_CURR', 'NAME_GOODS_CATEGORY'])['ref'].sum().unstack().fillna(0)
+    channel_type = df.groupby(['SK_ID_CURR', 'CHANNEL_TYPE'])['ref'].sum().unstack().fillna(0)
+    seller_industry = df.groupby(['SK_ID_CURR', 'NAME_SELLER_INDUSTRY'])['ref'].sum().unstack().fillna(0)
+    prod_combo = df.groupby(['SK_ID_CURR', 'PRODUCT_COMBINATION'])['ref'].sum().unstack().fillna(0)
+    df['SELLERPLACE_AREA'] = df['SELLERPLACE_AREA'].replace(-1, np.nan)
+    seller_area = df.groupby(['SK_ID_CURR'])['SELLERPLACE_AREA'].agg(['min', 'max', 'mean', 'median','std'])
+    insured = df.groupby(['SK_ID_CURR'])['NFLAG_INSURED_ON_APPROVAL'].sum()
+    insured_ratio = insured / active_status
+    
+    extended = df.groupby(['SK_ID_CURR'])['extended'].sum()
+    extneded_ratio = extended / active_status
+    termination_late = df.groupby(['SK_ID_CURR'])['termination_late'].sum()
+    termin_late_ratio = termination_late / active_status
+    recent_closure = df.groupby(['SK_ID_CURR'])['recent_closure'].sum()
+    recent_closure_ratio = recent_closure / active_status
+    
+    extended_days = df.groupby(['SK_ID_CURR'])['extended_days'].agg(['min', 'max', 'mean', 'median','std'])
+    termination_days = df.groupby(['SK_ID_CURR'])['termination_days'].agg(['min', 'max', 'mean', 'median','std'])
+    original_duration = df.groupby(['SK_ID_CURR'])['original_duration'].agg(['min', 'max', 'mean', 'median','std'])
+    actual_duration = df.groupby(['SK_ID_CURR'])['actual_duration'].agg(['min', 'max', 'mean', 'median','std'])
+    
+    z = df.groupby(['SK_ID_CURR', 'DAYS_DECISION'])['ref'].sum().reset_index()
+    max_apply_per_day = z.groupby(['SK_ID_CURR'])['ref'].max()
+    unique_applies = z.groupby(['SK_ID_CURR']).size()
+    z['multiple_applys'] = z['ref'] > 1
+    mutiple_applies = z.groupby(['SK_ID_CURR'])['multiple_applys'].sum()
+    multiple_apply_ratio = mutiple_applies / unique_applies
+    
+    app_credit = aggregation(df, 'amt_credit_diff')
+    app_credit_ratio = aggregation(df, 'amt_credit_ratio')
+    interest_portion = aggregation(df, 'interest_ratio')
+    interest_rate = aggregation(df, 'interest_rate')
+    down_payment_ratio = aggregation(df, 'down_payment_ratio')
+    annuity_income_ratio = aggregation(df, 'annuity_income_ratio')
+    credit_income_ratio = aggregation(df, 'credit_income_ratio')
+    
+    x = pd.concat([active_status, active_days, active_days_per_loan, last_loan, contract_status_0, contract_status,
+                   app_credit, app_credit_ratio, interest_portion, interest_rate, down_payment_ratio, annuity_income_ratio,
+                   first_loan, credit_income_ratio, f1, f2, f3, f4, days_since_last_approval, days_since_last_refusal,
+                   appr_credit_app, ref_credit_app, appr_credit_income, ref_credit_income, credit_sum, credit_pct, credit_income_pct,
+                   credit_app_pct, apply_freq, loan_type, loan_purpose, reject_reason, goods_cate_pct, max_apply_per_day,
+                   multiple_apply_ratio, pure_contract_status0, pure_contract_status, payment_type, type_suite, client_type,
+                   goods_cate, channel_type, seller_industry, prod_combo, seller_area, insured, insured_ratio, extended,
+                   extneded_ratio, termination_late, termin_late_ratio, recent_closure, recent_closure_ratio, extended_days,
+                   termination_days, original_duration, actual_duration], axis=1)
+    return x
+
+if __name__ == '__main__':
+    train = pd.read_csv('data/application_train.csv')
+    test = pd.read_csv('data/application_test.csv')
+    prev_app = pd.read_csv('data/previous_application.csv')
+    prev_app = prev_app.sort_values(['SK_ID_CURR', 'DAYS_DECISION'])
+    sorted_prev = prev_app.sort_values(["SK_ID_CURR", "DAYS_DECISION"], ascending=[True, True])
+    
+    prev_app['ref'] = 1
+    prev_app['amt_credit_diff'] = prev_app['AMT_CREDIT'] - prev_app['AMT_APPLICATION']
+    prev_app['amt_credit_ratio'] = prev_app['amt_credit_diff'] / prev_app['AMT_APPLICATION']
+    prev_app['amt_credit_diff'] = np.log1p(prev_app['amt_credit_diff'])
+    
+    prev_app['interest_ratio'] = (prev_app['AMT_ANNUITY'] * prev_app['CNT_PAYMENT'] - prev_app['AMT_CREDIT']) / prev_app['AMT_CREDIT']
+    prev_app.loc[prev_app['CNT_PAYMENT']==0, 'interest_ratio'] = np.nan
+    prev_app['down_payment_ratio'] = prev_app['AMT_DOWN_PAYMENT'] / prev_app['AMT_GOODS_PRICE']
+    
+    interest_rates = []
+    z = prev_app[['AMT_ANNUITY', 'AMT_CREDIT', 'CNT_PAYMENT']].to_numpy()
+    for P, A, n in tqdm(z, total=z.shape[0], desc='calculating interest rate'):
+        interest_rates.append(solve_interest_rate(P, A, n))
+    prev_app['interest_rate'] = interest_rates
+    prev_app.loc[prev_app['CNT_PAYMENT']==0, 'interest_rate'] = np.nan
+    
+    prev_app = prev_app.merge(train[['SK_ID_CURR', 'AMT_INCOME_TOTAL']], how='left', on=['SK_ID_CURR'])
+    prev_app['annuity_income_ratio'] = prev_app['AMT_ANNUITY'] / prev_app['AMT_INCOME_TOTAL']
+    prev_app['credit_income_ratio'] = prev_app['AMT_CREDIT'] / prev_app['AMT_INCOME_TOTAL']
+    prev_app['credit_app_ratio'] = prev_app['AMT_CREDIT'] / prev_app['AMT_APPLICATION']
+    
+    prev_app['f1'] = prev_app['RATE_INTEREST_PRIVILEGED'] - prev_app['RATE_INTEREST_PRIMARY']
+    prev_app['f2'] = prev_app['RATE_INTEREST_PRIVILEGED'] / prev_app['RATE_INTEREST_PRIMARY']
+    
+    prev_app['apply_interval'] = prev_app.groupby(['SK_ID_CURR'])['DAYS_DECISION'].diff()
+    prev_app['goods_cate_pct'] = prev_app.groupby(['NAME_GOODS_CATEGORY'])['AMT_GOODS_PRICE'].rank(pct=True)
+    
+    for col in ['DAYS_FIRST_DUE', 'DAYS_LAST_DUE_1ST_VERSION', 'DAYS_LAST_DUE', 'DAYS_TERMINATION']:
+        prev_app[col] = prev_app[col].replace(365243, np.nan)
+    prev_app['extended'] = (prev_app['DAYS_LAST_DUE'] > prev_app['DAYS_LAST_DUE_1ST_VERSION']).astype(int)
+    prev_app['extended_days'] = prev_app['DAYS_LAST_DUE'] - prev_app['DAYS_LAST_DUE_1ST_VERSION']
+    prev_app['termination_late'] = (prev_app['DAYS_TERMINATION'] > prev_app['DAYS_LAST_DUE']).astype(int)
+    prev_app['termination_days'] = prev_app['DAYS_TERMINATION'] - prev_app['DAYS_LAST_DUE']
+    prev_app['original_duration'] = prev_app['DAYS_LAST_DUE_1ST_VERSION'] - prev_app['DAYS_FIRST_DUE']
+    prev_app['actual_duration'] = prev_app['DAYS_TERMINATION'] - prev_app['DAYS_FIRST_DUE']
+    prev_app['recent_closure'] = (prev_app['DAYS_TERMINATION'] >= -30).astype(int)
+    
+    x = build_features(prev_app)
+    val_currs = np.load('artifacts/val_sk_currs.npy')
+    train = train[~train['SK_ID_CURR'].isin(val_currs)]
+    x_train = x[x.index.isin(train['SK_ID_CURR'])].reset_index().to_numpy().astype(np.float32)
+    x_val = x[x.index.isin(val_currs)].reset_index().to_numpy().astype(np.float32)
+    x_test = x[x.index.isin(test['SK_ID_CURR'])].reset_index().to_numpy().astype(np.float32)
+    
+    np.save('artifacts/train/prev_app_features.npy', x_train)
+    np.save('artifacts/validation/prev_app_features.npy', x_val)
+    np.save('artifacts/test/prev_app_features.npy', x_test)
+    
+
+
+
+
