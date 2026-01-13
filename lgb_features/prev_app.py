@@ -85,6 +85,29 @@ def build_features(df):
     loan_purpose = df.groupby(['SK_ID_CURR', 'NAME_CASH_LOAN_PURPOSE'])['ref'].sum().unstack().fillna(0)
     reject_reason = df.groupby(['SK_ID_CURR', 'CODE_REJECT_REASON'])['ref'].sum().unstack().fillna(0)
     goods_cate_pct = df.groupby('SK_ID_CURR')['goods_cate_pct'].agg(['min', 'max', 'mean', 'median','std'])
+    payment_type = df.groupby(['SK_ID_CURR', 'NAME_PAYMENT_TYPE'])['ref'].sum().unstack().fillna(0)
+    type_suite = df.groupby(['SK_ID_CURR', 'NAME_TYPE_SUITE'])['ref'].sum().unstack().fillna(0)
+    client_type = df.groupby(['SK_ID_CURR', 'NAME_CLIENT_TYPE'])['ref'].sum().unstack().fillna(0)
+    goods_cate = df.groupby(['SK_ID_CURR', 'NAME_GOODS_CATEGORY'])['ref'].sum().unstack().fillna(0)
+    channel_type = df.groupby(['SK_ID_CURR', 'CHANNEL_TYPE'])['ref'].sum().unstack().fillna(0)
+    seller_industry = df.groupby(['SK_ID_CURR', 'NAME_SELLER_INDUSTRY'])['ref'].sum().unstack().fillna(0)
+    prod_combo = df.groupby(['SK_ID_CURR', 'PRODUCT_COMBINATION'])['ref'].sum().unstack().fillna(0)
+    df['SELLERPLACE_AREA'] = df['SELLERPLACE_AREA'].replace(-1, np.nan)
+    seller_area = df.groupby(['SK_ID_CURR'])['SELLERPLACE_AREA'].agg(['min', 'max', 'mean', 'median','std'])
+    insured = df.groupby(['SK_ID_CURR'])['NFLAG_INSURED_ON_APPROVAL'].sum()
+    insured_ratio = insured / active_status
+    
+    extended = df.groupby(['SK_ID_CURR'])['extended'].sum()
+    extneded_ratio = extended / active_status
+    termination_late = df.groupby(['SK_ID_CURR'])['termination_late'].sum()
+    termin_late_ratio = termination_late / active_status
+    recent_closure = df.groupby(['SK_ID_CURR'])['recent_closure'].sum()
+    recent_closure_ratio = recent_closure / active_status
+    
+    extended_days = df.groupby(['SK_ID_CURR'])['extended_days'].agg(['min', 'max', 'mean', 'median','std'])
+    termination_days = df.groupby(['SK_ID_CURR'])['termination_days'].agg(['min', 'max', 'mean', 'median','std'])
+    original_duration = df.groupby(['SK_ID_CURR'])['original_duration'].agg(['min', 'max', 'mean', 'median','std'])
+    actual_duration = df.groupby(['SK_ID_CURR'])['actual_duration'].agg(['min', 'max', 'mean', 'median','std'])
     
     z = df.groupby(['SK_ID_CURR', 'DAYS_DECISION'])['ref'].sum().reset_index()
     max_apply_per_day = z.groupby(['SK_ID_CURR'])['ref'].max()
@@ -106,7 +129,10 @@ def build_features(df):
                    first_loan, credit_income_ratio, f1, f2, f3, f4, days_since_last_approval, days_since_last_refusal,
                    appr_credit_app, ref_credit_app, appr_credit_income, ref_credit_income, credit_sum, credit_pct, credit_income_pct,
                    credit_app_pct, apply_freq, loan_type, loan_purpose, reject_reason, goods_cate_pct, max_apply_per_day,
-                   multiple_apply_ratio, pure_contract_status0, pure_contract_status], axis=1)
+                   multiple_apply_ratio, pure_contract_status0, pure_contract_status, payment_type, type_suite, client_type,
+                   goods_cate, channel_type, seller_industry, prod_combo, seller_area, insured, insured_ratio, extended,
+                   extneded_ratio, termination_late, termin_late_ratio, recent_closure, recent_closure_ratio, extended_days,
+                   termination_days, original_duration, actual_duration], axis=1)
     return x
 
 if __name__ == '__main__':
@@ -115,11 +141,6 @@ if __name__ == '__main__':
     prev_app = pd.read_csv('data/previous_application.csv')
     prev_app = prev_app.sort_values(['SK_ID_CURR', 'DAYS_DECISION'])
     sorted_prev = prev_app.sort_values(["SK_ID_CURR", "DAYS_DECISION"], ascending=[True, True])
-    sorted_prev = sorted_prev.groupby("SK_ID_CURR").cumcount() + 1
-    prev_app['max_order'] = prev_app.groupby(['SK_ID_CURR'])['SK_ID_CURR'].transform('size')
-    prev_app = pd.concat([prev_app, sorted_prev], axis=1).rename(columns={0: 'seq_order'})
-    prev_app['seq'] = prev_app['max_order'] - prev_app['seq_order']
-    del prev_app['seq_order'], prev_app['max_order']
     
     prev_app['ref'] = 1
     prev_app['amt_credit_diff'] = prev_app['AMT_CREDIT'] - prev_app['AMT_APPLICATION']
@@ -148,6 +169,16 @@ if __name__ == '__main__':
     prev_app['apply_interval'] = prev_app.groupby(['SK_ID_CURR'])['DAYS_DECISION'].diff()
     prev_app['goods_cate_pct'] = prev_app.groupby(['NAME_GOODS_CATEGORY'])['AMT_GOODS_PRICE'].rank(pct=True)
     
+    for col in ['DAYS_FIRST_DUE', 'DAYS_LAST_DUE_1ST_VERSION', 'DAYS_LAST_DUE', 'DAYS_TERMINATION']:
+        prev_app[col] = prev_app[col].replace(365243, np.nan)
+    prev_app['extended'] = (prev_app['DAYS_LAST_DUE'] > prev_app['DAYS_LAST_DUE_1ST_VERSION']).astype(int)
+    prev_app['extended_days'] = prev_app['DAYS_LAST_DUE'] - prev_app['DAYS_LAST_DUE_1ST_VERSION']
+    prev_app['termination_late'] = (prev_app['DAYS_TERMINATION'] > prev_app['DAYS_LAST_DUE']).astype(int)
+    prev_app['termination_days'] = prev_app['DAYS_TERMINATION'] - prev_app['DAYS_LAST_DUE']
+    prev_app['original_duration'] = prev_app['DAYS_LAST_DUE_1ST_VERSION'] - prev_app['DAYS_FIRST_DUE']
+    prev_app['actual_duration'] = prev_app['DAYS_TERMINATION'] - prev_app['DAYS_FIRST_DUE']
+    prev_app['recent_closure'] = (prev_app['DAYS_TERMINATION'] >= -30).astype(int)
+    
     x = build_features(prev_app)
     val_currs = np.load('artifacts/val_sk_currs.npy')
     train = train[~train['SK_ID_CURR'].isin(val_currs)]
@@ -158,34 +189,6 @@ if __name__ == '__main__':
     np.save('artifacts/train/prev_app_features.npy', x_train)
     np.save('artifacts/validation/prev_app_features.npy', x_val)
     np.save('artifacts/test/prev_app_features.npy', x_test)
-
-
-#%%
-# len(set(prev_app['SK_ID_CURR']) & set(test['SK_ID_CURR']))
-# prev_app.groupby('SK_ID_CURR')['NAME_CONTRACT_TYPE'].count().std()
-# prev_app['NAME_CONTRACT_TYPE'].isnull().sum()
-# z['total_interest'] = z['AMT_ANNUITY'] * z['CNT_PAYMENT'] - z['AMT_CREDIT']
-# z['interest_per_month'] = z['total_interest'] / z['CNT_PAYMENT']
-# z['interest_rate'] = z['interest_per_month'] / z['AMT_ANNUITY']
-# 32696.1 * 48
-
-
-b = prev_app[~pd.isnull(prev_app['RATE_INTEREST_PRIMARY'])]
-
-
-
-#%%
-# z = prev_app[prev_app['NAME_CONTRACT_TYPE'].isin(['Revolving loans'])]
-# prev_app['NAME_GOODS_CATEGORY'].value_counts()
-
-
-
-
-
-# x = z[z['multiple_applys']]
-
-#%%
-prev_app['NAME_CONTRACT_STATUS'].value_counts()
     
 
 
