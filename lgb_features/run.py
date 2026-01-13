@@ -58,4 +58,3 @@ ss = pd.read_csv('data/sample_submission.csv')
 ss['TARGET'] = p_test
 ss.to_csv('artifacts/submission.csv', index=False)
 #%%
-x_train.to_numpy()
