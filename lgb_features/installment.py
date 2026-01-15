@@ -3,17 +3,8 @@ warnings.filterwarnings('ignore')
 import numpy as np
 import pandas as pd
 
-if __name__ == '__main__':
-    instal = pd.read_csv('data/installments_payments.csv')
-    prev_app = pd.read_csv('data/previous_application.csv')
-    train = pd.read_csv('data/application_train.csv')
-    test = pd.read_csv('data/application_test.csv')
-    
+def installment_features(instal):
     prev_features, curr_features = [], []
-    instal = instal.sort_values(['SK_ID_CURR', 'SK_ID_PREV', 'NUM_INSTALMENT_NUMBER'], ascending=(True, True, True))
-    instal['delay_days'] = instal['DAYS_ENTRY_PAYMENT'] - instal['DAYS_INSTALMENT']
-    instal['delay_money'] = instal['AMT_PAYMENT'] - instal['AMT_INSTALMENT']
-    instal['is_delay'] = instal['delay_days'] > 0
     
     prev_len = instal.groupby(['SK_ID_PREV', 'SK_ID_CURR', 'NUM_INSTALMENT_NUMBER']).size().reset_index()
     prev_len = prev_len.rename(columns={0: 'cnt'})
@@ -97,6 +88,21 @@ if __name__ == '__main__':
     prev_agg_1 = prev.groupby(['SK_ID_CURR'])[cols].agg('mean')
     prev_agg = pd.concat([prev_agg_0, prev_agg_1, x_curr], axis=1).reset_index()
     
+    return prev_agg
+
+if __name__ == '__main__':
+    instal = pd.read_csv('data/installments_payments.csv')
+    prev_app = pd.read_csv('data/previous_application.csv')
+    train = pd.read_csv('data/application_train.csv')
+    test = pd.read_csv('data/application_test.csv')
+    
+    instal = instal.sort_values(['SK_ID_CURR', 'SK_ID_PREV', 'NUM_INSTALMENT_NUMBER'], ascending=(True, True, True))
+    instal['delay_days'] = instal['DAYS_ENTRY_PAYMENT'] - instal['DAYS_INSTALMENT']
+    instal['delay_money'] = instal['AMT_PAYMENT'] - instal['AMT_INSTALMENT']
+    instal['is_delay'] = instal['delay_days'] > 0
+    
+    prev_agg = installment_features(instal)
+    
     val_currs = np.load('artifacts/val_sk_currs.npy')
     train = train[~train['SK_ID_CURR'].isin(val_currs)]
     x_train = prev_agg[prev_agg.index.isin(train['SK_ID_CURR'])].reset_index().to_numpy().astype(np.float32)
@@ -106,12 +112,6 @@ if __name__ == '__main__':
     np.save('artifacts/train/instal_features.npy', x_train)
     np.save('artifacts/validation/instal_features.npy', x_val)
     np.save('artifacts/test/instal_features.npy', x_test)
-
-#%%
-
-
-#%%
-
 
 
 
