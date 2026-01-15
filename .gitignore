@@ -11,6 +11,7 @@ try.py
 data/
 artifacts/
 trash.py
+trash/
 
 # Distribution / packaging
 .Python
