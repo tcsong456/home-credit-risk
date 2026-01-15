@@ -64,6 +64,7 @@ if __name__ == '__main__':
     instal['delay_money'] = instal['AMT_PAYMENT'] - instal['AMT_INSTALMENT']
     instal['is_delay'] = instal['delay_days'] > 0
     instal['delay_delta'] = instal['delay_days'].map(abs)
+    instal['diff_entry_instal'] = instal.groupby(['SK_ID_PREV'])['DAYS_ENTRY_PAYMENT'].diff()
 
     x_0 = installment_features(instal[instal['DAYS_INSTALMENT']>=-60])
     x_1 = installment_features(instal[instal['DAYS_INSTALMENT']>=-180])
@@ -84,4 +85,13 @@ if __name__ == '__main__':
 
 
 #%%
-z = instal.groupby(['SK_ID_PREV'])['DAYS_ENTRY_PAYMENT'].diff().reset_index()
+def agg_prev(data):
+    single_data = data.groupby(['SK_ID_CURR', 'SK_ID_PREV', 'NUM_INSTALMENT_NUMBER'])['delay_days'].max().reset_index()
+    single_data['is_delay'] = single_data['delay_days'] > 0
+    single_data['delay_delta'] = single_data['delay_days'].map(abs)
+    
+    rep_data = data.groupby(['SK_ID_CURR', 'SK_ID_PREV', 'NUM_INSTALMENT_NUMBER']).size().reset_index()
+    rep_data = rep_data.rename(columns={0: 'cnt'})
+    rep_data['rep'] = rep_data['cnt'] > 1
+
+
