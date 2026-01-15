@@ -3,7 +3,6 @@ warnings.filterwarnings('ignore')
 import numpy as np
 import pandas as pd
 
-# instal = instal.merge(prev_app[['SK_ID_PREV', 'AMT_ANNUITY']], how='left', on=['SK_ID_PREV'])
 if __name__ == '__main__':
     instal = pd.read_csv('data/installments_payments.csv')
     prev_app = pd.read_csv('data/previous_application.csv')
@@ -22,11 +21,16 @@ if __name__ == '__main__':
     sk_prev_len = prev_len[['SK_ID_PREV', 'cnt']].set_index('SK_ID_PREV')
     sk_curr_len = prev_len.groupby('SK_ID_CURR')['cnt'].sum()
     
-    real_delay_cnt = instal.groupby('SK_ID_PREV')['is_delay'].sum()
-    real_delay_ratio = real_delay_cnt / instal.groupby('SK_ID_PREV').size()
     single_delay = instal.groupby(['SK_ID_CURR', 'SK_ID_PREV', 'NUM_INSTALMENT_NUMBER'])['delay_days'].max().reset_index()
     single_delay['is_delay'] = single_delay['delay_days'] > 0
     single_delay['delay_delta'] = single_delay['delay_days'].map(abs)
+    
+    repetition = instal.groupby(['SK_ID_CURR', 'SK_ID_PREV', 'NUM_INSTALMENT_NUMBER']).size().reset_index()
+    repetition = repetition.rename(columns={0: 'cnt'})
+    repetition['rep'] = repetition['cnt'] > 1
+    
+    real_delay_cnt = instal.groupby('SK_ID_PREV')['is_delay'].sum()
+    real_delay_ratio = real_delay_cnt / instal.groupby('SK_ID_PREV').size()
     fake_delay_cnt = single_delay.groupby('SK_ID_PREV')['is_delay'].sum() 
     fake_delay_ratio = fake_delay_cnt / single_delay.groupby('SK_ID_PREV').size()
     prev_features += [real_delay_cnt, real_delay_ratio, fake_delay_cnt, fake_delay_ratio]
@@ -39,22 +43,26 @@ if __name__ == '__main__':
     prev_features += [payment_duration]
     
     instal.loc[instal['delay_days']==0, 'last_day_pay'] = 1
-    last_day_pay_cnt = instal.groupby('SK_ID_PREV')['last_day_pay'].sum()
     last_day_pay_cnt = instal.groupby('SK_ID_PREV')['last_day_pay'].sum().to_frame()
     last_day_pay_cnt = last_day_pay_cnt.rename(columns={'last_day_pay': 'cnt'})
     last_day_pay_ratio = last_day_pay_cnt / sk_prev_len
     prev_features += [last_day_pay_cnt, last_day_pay_ratio]
     
+    rep_cnt = repetition.groupby('SK_ID_PREV')['rep'].sum()
+    rep_ratio = rep_cnt / repetition.groupby('SK_ID_PREV').size()
+    prev_features += [rep_cnt, rep_ratio]
+    
     x_prev = pd.concat(prev_features, axis=1)
     
-    prev_columns = ['real_delay_cnt', 'real_delay_ratio', 'fake_delay_cnt', 'fake_delay_ratio']
+    columns = ['real_delay_cnt', 'real_delay_ratio', 'fake_delay_cnt', 'fake_delay_ratio']
     agg_cols = [ 'min', 'max', 'mean', 'median', 'std']
     prompt_agg = ['prompt_pay_' + c for c in agg_cols]
     late_agg = ['late_pay_' + c for c in agg_cols]
-    prev_columns += prompt_agg
-    prev_columns += late_agg
-    prev_columns += ['days_duration', 'last_day_pay_cnt', 'last_day_pay_ratio']
-    x_prev.columns = prev_columns
+    columns += prompt_agg
+    columns += late_agg
+    columns += ['days_duration', 'last_day_pay_cnt', 'last_day_pay_ratio']
+    columns += ['rep_cnt', 'rep_ratio']
+    x_prev.columns = columns
     
     real_delay_cnt_curr = instal.groupby('SK_ID_CURR')['is_delay'].sum()
     real_delay_ratio_curr = real_delay_cnt_curr / instal.groupby('SK_ID_CURR').size()
@@ -73,23 +81,22 @@ if __name__ == '__main__':
     last_day_pay_ratio = last_day_pay_cnt_curr / sk_curr_len
     curr_features += [last_day_pay_cnt_curr, last_day_pay_ratio]
     
-    x_curr = pd.concat(curr_features, axis=1)
+    rep_cnt_curr = repetition.groupby('SK_ID_CURR')['rep'].sum()
+    rep_ratio_curr = rep_cnt_curr / repetition.groupby('SK_ID_CURR').size()
+    curr_features += [rep_cnt_curr, rep_ratio_curr]
     
-    curr_columns = ['real_delay_cnt', 'real_delay_ratio', 'fake_delay_cnt', 'fake_delay_ratio']
-    agg_cols = [ 'min', 'max', 'mean', 'median', 'std']
-    prompt_agg = ['prompt_pay_' + c for c in agg_cols]
-    late_agg = ['late_pay_' + c for c in agg_cols]
-    curr_columns += prompt_agg
-    curr_columns += late_agg
-    curr_columns += ['last_day_pay_cnt', 'last_day_pay_ratio']
-    x_curr.columns = curr_columns
+    x_curr = pd.concat(curr_features, axis=1)
+    columns.remove('days_duration')
+    x_curr.columns = columns
 
 #%%
-f = instal.drop_duplicates(['SK_ID_PREV', 'NUM_INSTALMENT_VERSION', 'DAYS_INSTALMENT']).groupby(['SK_ID_PREV'])['AMT_INSTALMENT'].sum()
-z = instal.groupby(['SK_ID_PREV'])['AMT_PAYMENT'].sum()
-k = pd.concat([f, z], axis=1)
-y = k[~np.isclose(k['AMT_INSTALMENT'], k['AMT_PAYMENT'], rtol=0.5, atol=0.5)]
+z = instal.iloc[:100000]
 
 #%%
-x_curr
+prev_app[['']]
+
+
+
+
+
 
