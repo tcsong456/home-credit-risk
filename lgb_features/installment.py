@@ -6,6 +6,8 @@ import pandas as pd
 if __name__ == '__main__':
     instal = pd.read_csv('data/installments_payments.csv')
     prev_app = pd.read_csv('data/previous_application.csv')
+    train = pd.read_csv('data/application_train.csv')
+    test = pd.read_csv('data/application_test.csv')
     
     prev_features, curr_features = [], []
     instal = instal.sort_values(['SK_ID_CURR', 'SK_ID_PREV', 'NUM_INSTALMENT_NUMBER'], ascending=(True, True, True))
@@ -88,12 +90,29 @@ if __name__ == '__main__':
     x_curr = pd.concat(curr_features, axis=1)
     columns.remove('days_duration')
     x_curr.columns = columns
+    
+    prev = prev_app[['SK_ID_CURR', 'SK_ID_PREV', 'DAYS_DECISION']].merge(x_prev, how='left', on=['SK_ID_PREV'])
+    cols = [col for col in prev.columns if col not in ['SK_ID_CURR', 'SK_ID_PREV', 'DAYS_DECISION']]
+    prev_agg_0 = prev[prev['DAYS_DECISION']>=-400].groupby('SK_ID_CURR')[cols].agg('mean')
+    prev_agg_1 = prev.groupby(['SK_ID_CURR'])[cols].agg('mean')
+    prev_agg = pd.concat([prev_agg_0, prev_agg_1, x_curr], axis=1).reset_index()
+    
+    val_currs = np.load('artifacts/val_sk_currs.npy')
+    train = train[~train['SK_ID_CURR'].isin(val_currs)]
+    x_train = prev_agg[prev_agg.index.isin(train['SK_ID_CURR'])].reset_index().to_numpy().astype(np.float32)
+    x_val = prev_agg[prev_agg.index.isin(val_currs)].reset_index().to_numpy().astype(np.float32)
+    x_test = prev_agg[prev_agg.index.isin(test['SK_ID_CURR'])].reset_index().to_numpy().astype(np.float32)
+    
+    np.save('artifacts/train/instal_features.npy', x_train)
+    np.save('artifacts/validation/instal_features.npy', x_val)
+    np.save('artifacts/test/instal_features.npy', x_test)
 
 #%%
-z = instal.iloc[:100000]
+
 
 #%%
-prev_app[['']]
+
+
 
 
 
