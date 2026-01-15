@@ -39,7 +39,7 @@ def build_features(data, group_feature, prefix=''):
     
     features = pd.concat(features, axis=1)
     features.columns = columns
-    return features, columns
+    return features
 
 if __name__ == '__main__':
     instal = pd.read_csv('data/installments_payments.csv')
@@ -54,36 +54,25 @@ if __name__ == '__main__':
     instal['missing_pay'] = instal['delay_money'] < 0
     instal['delay_money'] = instal['delay_money'].map(abs)
     
-    x_prev, cols = build_features(instal, 'SK_ID_PREV', prefix='prev_')
-    x_curr, _ = build_features(instal, 'SK_ID_CURR', prefix='curr_')
+    x_0 = build_features(instal[instal['DAYS_INSTALMENT']>=-60], 'SK_ID_CURR', '60_')
+    x_1 = build_features(instal[instal['DAYS_INSTALMENT']>=-180], 'SK_ID_CURR', '180_')
+    x_2 = build_features(instal[instal['DAYS_INSTALMENT']>=-365], 'SK_ID_CURR', '365_')
+    x_3 = build_features(instal, 'SK_ID_CURR')
     
-    x = prev_app[['SK_ID_CURR', 'SK_ID_PREV', 'NAME_CONTRACT_TYPE', 'DAYS_DECISION', 'AMT_CREDIT', 'CNT_PAYMENT']].merge(x_prev, how='left', on=['SK_ID_PREV'])
-    x.loc[x['NAME_CONTRACT_TYPE']=='Revolving loans', ['total_paid', 'AMT_CREDIT']] = np.nan
-    x['interest_portion'] = (x['total_paid'] - x['AMT_CREDIT']) / x['AMT_CREDIT']
-    x['interest_cnt']  = x['total_paid'] - x['AMT_CREDIT']
-    
-    cols += ['interest_portion', 'interest_cnt']
-    prev_0 = x[x['DAYS_DECISION']>=-400].groupby('SK_ID_CURR')[cols].agg(['mean'])
-    prev_1 = x.groupby('SK_ID_CURR')[cols].agg(['mean'])
-    prev_agg = pd.concat([prev_0, prev_1, x_curr], axis=1)
+    fixed_features = ['SK_ID_CURR', 'SK_ID_PREV', 'NAME_CONTRACT_STATUS']
+    X = build_features(instal, 'SK_ID_PREV')
+    X = prev_app[fixed_features].merge(X, how='left', on=['SK_ID_PREV'])
+    X = X[X['NAME_CONTRACT_STATUS'].isin(['Approved'])]
+    cols = [col for col in X.columns if col not in fixed_features]
+    x_4 = X.groupby('SK_ID_CURR')[cols].agg(['max', 'mean', 'median', 'std'])
+    x = pd.concat([x_0, x_1, x_2, x_3, x_4], axis=1)
     
     val_currs = np.load('artifacts/val_sk_currs.npy')
     train = train[~train['SK_ID_CURR'].isin(val_currs)]
-    x_train = prev_agg[prev_agg.index.isin(train['SK_ID_CURR'])].reset_index().to_numpy().astype(np.float32)
-    x_val = prev_agg[prev_agg.index.isin(val_currs)].reset_index().to_numpy().astype(np.float32)
-    x_test = prev_agg[prev_agg.index.isin(test['SK_ID_CURR'])].reset_index().to_numpy().astype(np.float32)
+    x_train = x[x.index.isin(train['SK_ID_CURR'])].reset_index().to_numpy().astype(np.float32)
+    x_val = x[x.index.isin(val_currs)].reset_index().to_numpy().astype(np.float32)
+    x_test = x[x.index.isin(test['SK_ID_CURR'])].reset_index().to_numpy().astype(np.float32)
     
     np.save('artifacts/train/payment_features.npy', x_train)
     np.save('artifacts/validation/payment_features.npy', x_val)
     np.save('artifacts/test/payment_features.npy', x_test)
-    
-    
-
-#%%
-
-
-
-
-
-
-
