@@ -4,7 +4,7 @@ import lightgbm as lgb
 from sklearn.metrics import roc_auc_score
 
 train_data, val_data, test_data = [], [], []
-ft_name = ['app_features', 'prev_app_features', 'instal_features', 'payment_features']
+ft_name = ['app_features', 'prev_app_features', 'instal_features', 'payment_features', 'pos_cash_features']
 for f in ft_name:
     x_train = np.load(f'artifacts/train/{f}.npy')
     if f == 'app_features':
